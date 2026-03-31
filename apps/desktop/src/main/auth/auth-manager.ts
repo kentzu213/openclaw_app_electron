@@ -1,0 +1,396 @@
+/**
+ * AuthManager — Supabase Auth Integration
+ * Tích hợp cùng hệ thống auth với izziapi.com
+ * - Supabase signInWithPassword / signInWithOAuth
+ * - Bearer JWT → izzi-backend /api/auth/me
+ * - Token storage via electron safeStorage
+ */
+
+import { createClient, SupabaseClient, Session } from '@supabase/supabase-js';
+import { safeStorage, shell, BrowserWindow } from 'electron';
+import { DatabaseManager } from '../db/database';
+
+// IzziAPI.com Backend URL
+const IZZI_API_BASE = process.env.STARIZZI_API_URL || process.env.OPENCLAW_API_URL || 'https://api.izziapi.com';
+
+// Supabase config — same project as izziapi.com
+const SUPABASE_URL = process.env.STARIZZI_SUPABASE_URL || process.env.OPENCLAW_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.STARIZZI_SUPABASE_ANON_KEY || process.env.OPENCLAW_SUPABASE_ANON_KEY || '';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  apiKey?: string;
+  plan?: string;
+  balance?: number;
+  role?: string;
+  activeKeys?: number;
+  createdAt?: string;
+}
+
+interface StoredSession {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  user: User;
+}
+
+export class AuthManager {
+  private session: StoredSession | null = null;
+  private supabase: SupabaseClient | null = null;
+  private db: DatabaseManager;
+
+  constructor(db: DatabaseManager) {
+    this.db = db;
+    this.initSupabase();
+    this.loadSession();
+  }
+
+  private initSupabase() {
+    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      this.supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          autoRefreshToken: true,
+          persistSession: false, // We handle persistence ourselves via safeStorage
+        },
+      });
+      console.log('[Auth] Supabase client initialized');
+    } else {
+      console.warn('[Auth] Supabase credentials not configured — running in demo mode');
+    }
+  }
+
+  private loadSession() {
+    try {
+      const stored = this.db.getSetting('auth_session');
+      if (stored) {
+        const decrypted = safeStorage.isEncryptionAvailable()
+          ? safeStorage.decryptString(Buffer.from(stored, 'base64'))
+          : stored;
+        this.session = JSON.parse(decrypted);
+
+        // Check if session is expired
+        if (this.session && this.session.expiresAt < Date.now()) {
+          console.log('[Auth] Stored session expired, will refresh');
+          this.refreshAccessToken();
+        }
+      }
+    } catch (err) {
+      console.error('[Auth] Failed to load session:', err);
+      this.session = null;
+    }
+  }
+
+  private saveSession(session: StoredSession) {
+    this.session = session;
+    try {
+      const serialized = JSON.stringify(session);
+      const encrypted = safeStorage.isEncryptionAvailable()
+        ? safeStorage.encryptString(serialized).toString('base64')
+        : serialized;
+      this.db.setSetting('auth_session', encrypted);
+    } catch (err) {
+      console.error('[Auth] Failed to save session:', err);
+    }
+  }
+
+  private clearSession() {
+    this.session = null;
+    this.db.deleteSetting('auth_session');
+  }
+
+  /**
+   * Fetch user profile from izzi-backend /api/auth/me
+   * Same as izzi-web-v2/src/context/AuthContext.tsx fetchProfile()
+   */
+  private async fetchProfile(accessToken: string): Promise<User | null> {
+    try {
+      const res = await fetch(`${IZZI_API_BASE}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as any;
+      return {
+        id: data.id,
+        email: data.email,
+        name: data.name || data.email?.split('@')[0] || '',
+        avatar: (data.name || data.email || 'U')[0].toUpperCase(),
+        plan: data.plan ?? 'free',
+        balance: data.balance ?? 0,
+        role: data.role ?? 'user',
+        activeKeys: data.activeKeys ?? 0,
+        createdAt: data.createdAt || new Date().toISOString(),
+      };
+    } catch (err) {
+      console.error('[Auth] Failed to fetch profile:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Login with email + password via Supabase Auth
+   * Same flow as izzi-web-v2/src/context/AuthContext.tsx login()
+   */
+  async login(email: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {
+    // Demo mode fallback
+    if (!this.supabase) {
+      const demoUser: User = {
+        id: 'demo-user',
+        email,
+        name: email.split('@')[0],
+        avatar: email[0].toUpperCase(),
+        plan: 'Pro',
+        balance: 10.50,
+        role: 'user',
+        activeKeys: 2,
+        createdAt: new Date().toISOString(),
+      };
+      this.saveSession({
+        accessToken: 'demo-token',
+        refreshToken: 'demo-refresh',
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        user: demoUser,
+      });
+      console.log('[Auth] Demo login:', email);
+      return { success: true, user: demoUser };
+    }
+
+    try {
+      const { data, error } = await this.supabase.auth.signInWithPassword({ email, password });
+
+      if (error) {
+        console.error('[Auth] Supabase login error:', error.message);
+        return { success: false, error: error.message };
+      }
+
+      if (!data.session) {
+        return { success: false, error: 'No session returned' };
+      }
+
+      // Fetch full profile from izzi-backend
+      const profile = await this.fetchProfile(data.session.access_token);
+      const user: User = profile || {
+        id: data.user.id,
+        email: data.user.email || email,
+        name: data.user.user_metadata?.name || email.split('@')[0],
+        plan: 'free',
+      };
+
+      this.saveSession({
+        accessToken: data.session.access_token,
+        refreshToken: data.session.refresh_token,
+        expiresAt: (data.session.expires_at || 0) * 1000,
+        user,
+      });
+
+      console.log('[Auth] Login successful:', user.email);
+      return { success: true, user };
+    } catch (err: any) {
+      const message = err.message || 'Login failed';
+      console.error('[Auth] Login error:', message);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Login with Google OAuth via Supabase
+   * Opens system browser for OAuth flow
+   */
+  async loginWithGoogle(): Promise<{ success: boolean; error?: string }> {
+    if (!this.supabase) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      const { data, error } = await this.supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'starizzi://auth/callback',
+          skipBrowserRedirect: true, // We'll handle the redirect ourselves
+        },
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      if (data.url) {
+        // Open OAuth URL in system browser
+        await shell.openExternal(data.url);
+        return { success: true };
+      }
+
+      return { success: false, error: 'No OAuth URL returned' };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Handle OAuth callback (e.g., from custom protocol handler)
+   */
+  async handleOAuthCallback(url: string): Promise<{ success: boolean; user?: User; error?: string }> {
+    if (!this.supabase) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      // Extract tokens from callback URL
+      const params = new URL(url).searchParams;
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+
+      if (!accessToken || !refreshToken) {
+        // Try hash fragment
+        const hash = new URL(url).hash.substring(1);
+        const hashParams = new URLSearchParams(hash);
+        const at = hashParams.get('access_token');
+        const rt = hashParams.get('refresh_token');
+
+        if (at && rt) {
+          const { data, error } = await this.supabase.auth.setSession({
+            access_token: at,
+            refresh_token: rt,
+          });
+
+          if (error || !data.session) {
+            return { success: false, error: error?.message || 'Failed to set session' };
+          }
+
+          const profile = await this.fetchProfile(data.session.access_token);
+          const user: User = profile || {
+            id: data.user?.id || '',
+            email: data.user?.email || '',
+            name: data.user?.user_metadata?.name || '',
+            plan: 'free',
+          };
+
+          this.saveSession({
+            accessToken: data.session.access_token,
+            refreshToken: data.session.refresh_token,
+            expiresAt: (data.session.expires_at || 0) * 1000,
+            user,
+          });
+
+          return { success: true, user };
+        }
+
+        return { success: false, error: 'No tokens in callback URL' };
+      }
+
+      return { success: false, error: 'Invalid callback' };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Signup new user via Supabase Auth
+   */
+  async signup(email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.supabase) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      const { error } = await this.supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { name, full_name: name } },
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async logout(): Promise<void> {
+    try {
+      if (this.supabase) {
+        await this.supabase.auth.signOut();
+      }
+    } catch {
+      // Ignore logout API errors
+    }
+    this.clearSession();
+    console.log('[Auth] Logged out');
+  }
+
+  async refreshAccessToken(): Promise<boolean> {
+    if (!this.session?.refreshToken || !this.supabase) return false;
+
+    try {
+      const { data, error } = await this.supabase.auth.refreshSession({
+        refresh_token: this.session.refreshToken,
+      });
+
+      if (error || !data.session) {
+        console.error('[Auth] Token refresh failed:', error?.message);
+        this.clearSession();
+        return false;
+      }
+
+      // Refresh profile data
+      const profile = await this.fetchProfile(data.session.access_token);
+      const user = profile || this.session.user;
+
+      this.saveSession({
+        accessToken: data.session.access_token,
+        refreshToken: data.session.refresh_token,
+        expiresAt: (data.session.expires_at || 0) * 1000,
+        user,
+      });
+
+      return true;
+    } catch {
+      console.error('[Auth] Token refresh error');
+      return false;
+    }
+  }
+
+  async getAccessToken(): Promise<string | null> {
+    if (!this.session) return null;
+
+    // Refresh 5 minutes before expiry
+    if (this.session.expiresAt - Date.now() < 5 * 60 * 1000) {
+      const refreshed = await this.refreshAccessToken();
+      if (!refreshed) return null;
+    }
+
+    return this.session.accessToken;
+  }
+
+  isAuthenticated(): boolean {
+    return this.session !== null;
+  }
+
+  getCurrentUser(): User | null {
+    return this.session?.user || null;
+  }
+
+  getApiKey(): string | null {
+    return this.session?.user?.apiKey || null;
+  }
+
+  /**
+   * Refresh user profile from backend (e.g., after balance change)
+   */
+  async refreshProfile(): Promise<User | null> {
+    const token = await this.getAccessToken();
+    if (!token) return null;
+
+    const profile = await this.fetchProfile(token);
+    if (profile && this.session) {
+      this.session.user = profile;
+      this.saveSession(this.session);
+    }
+    return profile;
+  }
+}
