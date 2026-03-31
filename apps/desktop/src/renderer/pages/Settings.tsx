@@ -4,9 +4,11 @@ interface SettingsPageProps {
   user: any;
   onLogout: () => void;
   onRefresh?: () => void;
+  onOpenClawQuickInstall?: () => void;
+  onBuyApi?: () => void;
 }
 
-export function SettingsPage({ user, onLogout, onRefresh }: SettingsPageProps) {
+export function SettingsPage({ user, onLogout, onRefresh, onOpenClawQuickInstall, onBuyApi }: SettingsPageProps) {
   return (
     <div>
       <div className="page-header">
@@ -36,6 +38,21 @@ export function SettingsPage({ user, onLogout, onRefresh }: SettingsPageProps) {
           <SettingRow label="Số dư" value={user?.balance !== undefined ? `$${user.balance.toFixed(2)}` : '$0.00'} />
           <SettingRow label="API Keys" value={`${user?.activeKeys || 0} đang hoạt động`} />
           <SettingRow label="Tham gia từ" value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString('vi-VN') : 'N/A'} />
+        </div>
+      </div>
+
+      {/* Core actions */}
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <div className="card__header">
+          <h3 className="card__title">⚡ Tác vụ chính</h3>
+        </div>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <button className="btn btn--primary" onClick={onOpenClawQuickInstall}>
+            ⚙️ Mở / cài OpenClaw
+          </button>
+          <button className="btn btn--secondary" onClick={onBuyApi}>
+            💳 Mua API trên IzziAPI
+          </button>
         </div>
       </div>
 

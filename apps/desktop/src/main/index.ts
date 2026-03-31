@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import * as path from 'path';
+import { execFile } from 'child_process';
 import { AuthManager } from './auth/auth-manager';
 import { DatabaseManager } from './db/database';
 import { SyncEngine } from './sync/sync-engine';
@@ -12,6 +13,8 @@ let syncEngine: SyncEngine;
 let extensionManager: ExtensionManager;
 
 const isDev = !app.isPackaged;
+const OPENCLAW_DOCS_URL = 'https://docs.openclaw.ai';
+const IZZIAPI_PRICING_URL = 'https://izziapi.com/pricing';
 
 // Register custom protocol for OAuth callback
 if (process.defaultApp) {
@@ -49,6 +52,24 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+}
+
+function findOpenClawCli(): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile('where', ['openclaw'], (error, stdout) => {
+      if (error || !stdout) {
+        resolve(null);
+        return;
+      }
+
+      const first = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find(Boolean);
+
+      resolve(first || null);
+    });
   });
 }
 
@@ -116,6 +137,23 @@ function setupIPC() {
   // ── Shell ──
   ipcMain.handle('shell:openExternal', async (_event, url: string) => {
     return shell.openExternal(url);
+  });
+
+  ipcMain.handle('system:openclawQuickInstall', async () => {
+    const cliPath = await findOpenClawCli();
+
+    if (cliPath) {
+      await shell.openPath(cliPath);
+      return { success: true, mode: 'local-cli', target: cliPath };
+    }
+
+    await shell.openExternal(OPENCLAW_DOCS_URL);
+    return { success: true, mode: 'docs', target: OPENCLAW_DOCS_URL };
+  });
+
+  ipcMain.handle('system:buyApi', async () => {
+    await shell.openExternal(IZZIAPI_PRICING_URL);
+    return { success: true, target: IZZIAPI_PRICING_URL };
   });
 }
 

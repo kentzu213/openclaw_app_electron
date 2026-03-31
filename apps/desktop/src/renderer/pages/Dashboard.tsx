@@ -3,9 +3,11 @@ import React, { useState, useEffect } from 'react';
 interface DashboardPageProps {
   user: any;
   onRefresh?: () => void;
+  onOpenClawQuickInstall?: () => void;
+  onBuyApi?: () => void;
 }
 
-export function DashboardPage({ user, onRefresh }: DashboardPageProps) {
+export function DashboardPage({ user, onRefresh, onOpenClawQuickInstall, onBuyApi }: DashboardPageProps) {
   const [syncStatus, setSyncStatus] = useState<string>('idle');
   const [extensionCount, setExtensionCount] = useState(0);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
@@ -92,6 +94,29 @@ export function DashboardPage({ user, onRefresh }: DashboardPageProps) {
         )}
       </div>
 
+      {/* Main product flow */}
+      <div className="card" style={{ marginBottom: '24px', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.12))' }}>
+        <div className="card__header">
+          <h3 className="card__title">🎯 Hai tính năng chính cần dùng ngay</h3>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
+          <PrimaryFlowCard
+            icon="⚙️"
+            title="Cài nhanh OpenClaw"
+            description="Mở nhanh OpenClaw đã có trên máy, hoặc mở docs cài đặt nếu chưa có."
+            buttonText="Mở / cài OpenClaw"
+            onClick={onOpenClawQuickInstall}
+          />
+          <PrimaryFlowCard
+            icon="💳"
+            title="Mua API trên IzziAPI"
+            description="Đi thẳng tới trang pricing để đăng ký gói và mua API key dùng thực chiến."
+            buttonText="Mua API ngay"
+            onClick={onBuyApi}
+          />
+        </div>
+      </div>
+
       {/* Account Info Banner */}
       <div className="card" style={{ marginBottom: '24px', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.1))' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '8px' }}>
@@ -147,6 +172,12 @@ export function DashboardPage({ user, onRefresh }: DashboardPageProps) {
             onClick={() => window.electronAPI?.shell.openExternal('https://izziapi.com/dashboard/keys')}
           />
           <QuickAction
+            icon="⚙️"
+            title="Cài nhanh OpenClaw"
+            description="Bật OpenClaw hoặc mở docs cài đặt"
+            onClick={onOpenClawQuickInstall}
+          />
+          <QuickAction
             icon="🏪"
             title="Khám phá Marketplace"
             description="Tìm tiện ích mở rộng mới"
@@ -156,6 +187,12 @@ export function DashboardPage({ user, onRefresh }: DashboardPageProps) {
             title="Tài liệu API"
             description="Đọc docs IzziAPI.com"
             onClick={() => window.electronAPI?.shell.openExternal('https://izziapi.com/docs')}
+          />
+          <QuickAction
+            icon="💳"
+            title="Mua API ngay"
+            description="Đi tới pricing của IzziAPI.com"
+            onClick={onBuyApi}
           />
           <QuickAction
             icon="💡"
@@ -181,6 +218,27 @@ function QuickAction({ icon, title, description, onClick }: {
       <div style={{ fontSize: '24px', marginBottom: '8px' }}>{icon}</div>
       <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>{title}</div>
       <div style={{ fontSize: '12px', color: 'var(--color-text-tertiary)' }}>{description}</div>
+    </div>
+  );
+}
+
+function PrimaryFlowCard({ icon, title, description, buttonText, onClick }: {
+  icon: string;
+  title: string;
+  description: string;
+  buttonText: string;
+  onClick?: () => void;
+}) {
+  return (
+    <div className="card" style={{ background: 'rgba(255,255,255,0.03)' }}>
+      <div style={{ fontSize: '28px', marginBottom: '10px' }}>{icon}</div>
+      <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '6px' }}>{title}</div>
+      <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: '14px' }}>
+        {description}
+      </div>
+      <button className="btn btn--primary btn--sm" onClick={onClick}>
+        {buttonText}
+      </button>
     </div>
   );
 }

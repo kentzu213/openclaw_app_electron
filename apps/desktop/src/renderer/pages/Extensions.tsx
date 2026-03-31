@@ -11,7 +11,7 @@ interface InstalledExtension {
   installedAt: string;
 }
 
-export function ExtensionsPage() {
+export function ExtensionsPage({ onGoMarketplace, onOpenClawQuickInstall }: { onGoMarketplace?: () => void; onOpenClawQuickInstall?: () => void; }) {
   const [extensions, setExtensions] = useState<InstalledExtension[]>([]);
   const [uninstallingId, setUninstallingId] = useState<string | null>(null);
 
@@ -65,7 +65,10 @@ export function ExtensionsPage() {
             <p className="empty-state__description">
               Truy cập Marketplace để khám phá và cài đặt các tiện ích mở rộng giúp tăng hiệu quả công việc.
             </p>
-            <button className="btn btn--primary">🏪 Đi đến Marketplace</button>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn--primary" onClick={onGoMarketplace}>🏪 Đi đến Marketplace</button>
+              <button className="btn btn--ghost" onClick={onOpenClawQuickInstall}>⚙️ Mở / cài OpenClaw</button>
+            </div>
           </div>
         </div>
       ) : (

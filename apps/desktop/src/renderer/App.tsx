@@ -9,6 +9,11 @@ import { SettingsPage } from './pages/Settings';
 
 type Page = 'dashboard' | 'marketplace' | 'extensions' | 'settings';
 
+interface MainActionHandlers {
+  onOpenClawQuickInstall: () => Promise<void>;
+  onBuyApi: () => Promise<void>;
+}
+
 declare global {
   interface Window {
     electronAPI?: any;
@@ -43,29 +48,17 @@ export function App() {
 
   async function handleLogin(email: string, password: string): Promise<string | null> {
     try {
-      if (window.electronAPI) {
-        const result = await window.electronAPI.auth.login({ email, password });
-        if (result.success) {
-          setCurrentUser(result.user);
-          setIsAuthenticated(true);
-          return null;
-        }
-        return result.error || 'Đăng nhập thất bại';
+      if (!window.electronAPI) {
+        return 'Bản chạy thử yêu cầu mở trong Electron app.';
       }
-      // Demo mode — simulate Supabase-like response
-      setCurrentUser({
-        id: 'demo-user',
-        name: email.split('@')[0] || 'Demo User',
-        email,
-        plan: 'Pro',
-        balance: 10.50,
-        role: 'user',
-        activeKeys: 2,
-        avatar: email[0]?.toUpperCase() || 'D',
-        createdAt: new Date().toISOString(),
-      });
-      setIsAuthenticated(true);
-      return null;
+
+      const result = await window.electronAPI.auth.login({ email, password });
+      if (result.success) {
+        setCurrentUser(result.user);
+        setIsAuthenticated(true);
+        return null;
+      }
+      return result.error || 'Đăng nhập thất bại';
     } catch (err: any) {
       return err.message || 'Đăng nhập thất bại';
     }
@@ -78,15 +71,15 @@ export function App() {
    */
   async function handleSignup(email: string, password: string, name: string): Promise<string | null> {
     try {
-      if (window.electronAPI) {
-        const result = await window.electronAPI.auth.signup({ email, password, name });
-        if (result.success) {
-          return null; // Success — email verification sent
-        }
-        return result.error || 'Đăng ký thất bại';
+      if (!window.electronAPI) {
+        return 'Bản chạy thử yêu cầu mở trong Electron app.';
       }
-      // Demo mode
-      return null;
+
+      const result = await window.electronAPI.auth.signup({ email, password, name });
+      if (result.success) {
+        return null;
+      }
+      return result.error || 'Đăng ký thất bại';
     } catch (err: any) {
       return err.message || 'Đăng ký thất bại';
     }
@@ -94,16 +87,15 @@ export function App() {
 
   async function handleGoogleLogin(): Promise<string | null> {
     try {
-      if (window.electronAPI) {
-        const result = await window.electronAPI.auth.loginWithGoogle();
-        if (result.success) {
-          return null;
-        }
-        return result.error || 'Đăng nhập Google thất bại';
+      if (!window.electronAPI) {
+        return 'Bản chạy thử yêu cầu mở trong Electron app.';
       }
-      // Demo mode
-      window.open('https://izziapi.com/dashboard', '_blank');
-      return null;
+
+      const result = await window.electronAPI.auth.loginWithGoogle();
+      if (result.success) {
+        return null;
+      }
+      return result.error || 'Đăng nhập Google thất bại';
     } catch (err: any) {
       return err.message || 'Đăng nhập Google thất bại';
     }
@@ -131,6 +123,22 @@ export function App() {
     }
   }
 
+  async function handleOpenClawQuickInstall() {
+    try {
+      await window.electronAPI?.system.openclawQuickInstall();
+    } catch (err) {
+      console.error('OpenClaw quick install failed:', err);
+    }
+  }
+
+  async function handleBuyApi() {
+    try {
+      await window.electronAPI?.system.buyApi();
+    } catch (err) {
+      console.error('Buy API action failed:', err);
+    }
+  }
+
   if (isLoading) {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -154,10 +162,10 @@ export function App() {
 
   function renderPage() {
     switch (currentPage) {
-      case 'dashboard': return <DashboardPage user={currentUser} onRefresh={handleRefreshProfile} />;
+      case 'dashboard': return <DashboardPage user={currentUser} onRefresh={handleRefreshProfile} onOpenClawQuickInstall={handleOpenClawQuickInstall} onBuyApi={handleBuyApi} />;
       case 'marketplace': return <MarketplacePage />;
-      case 'extensions': return <ExtensionsPage />;
-      case 'settings': return <SettingsPage user={currentUser} onLogout={handleLogout} onRefresh={handleRefreshProfile} />;
+      case 'extensions': return <ExtensionsPage onGoMarketplace={() => setCurrentPage('marketplace')} onOpenClawQuickInstall={handleOpenClawQuickInstall} />;
+      case 'settings': return <SettingsPage user={currentUser} onLogout={handleLogout} onRefresh={handleRefreshProfile} onOpenClawQuickInstall={handleOpenClawQuickInstall} onBuyApi={handleBuyApi} />;
     }
   }
 

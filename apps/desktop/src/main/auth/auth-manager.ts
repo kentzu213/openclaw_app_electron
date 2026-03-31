@@ -37,6 +37,14 @@ interface StoredSession {
   user: User;
 }
 
+interface DemoRegisteredUser {
+  id: string;
+  email: string;
+  password: string;
+  name: string;
+  createdAt: string;
+}
+
 export class AuthManager {
   private session: StoredSession | null = null;
   private supabase: SupabaseClient | null = null;
@@ -101,6 +109,21 @@ export class AuthManager {
     this.db.deleteSetting('auth_session');
   }
 
+  private getDemoUsers(): DemoRegisteredUser[] {
+    try {
+      const raw = this.db.getSetting('demo_users');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private saveDemoUsers(users: DemoRegisteredUser[]) {
+    this.db.setSetting('demo_users', JSON.stringify(users));
+  }
+
   /**
    * Fetch user profile from izzi-backend /api/auth/me
    * Same as izzi-web-v2/src/context/AuthContext.tsx fetchProfile()
@@ -134,22 +157,34 @@ export class AuthManager {
    * Same flow as izzi-web-v2/src/context/AuthContext.tsx login()
    */
   async login(email: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {
-    // Demo mode fallback
+    // Demo mode fallback — still requires prior signup
     if (!this.supabase) {
+      const registered = this.getDemoUsers().find(
+        (user) => user.email.toLowerCase() === email.toLowerCase(),
+      );
+
+      if (!registered) {
+        return { success: false, error: 'Tài khoản chưa tồn tại. Vui lòng đăng ký trước để sử dụng desktop app.' };
+      }
+
+      if (registered.password !== password) {
+        return { success: false, error: 'Sai mật khẩu.' };
+      }
+
       const demoUser: User = {
-        id: 'demo-user',
-        email,
-        name: email.split('@')[0],
-        avatar: email[0].toUpperCase(),
-        plan: 'Pro',
-        balance: 10.50,
+        id: registered.id,
+        email: registered.email,
+        name: registered.name,
+        avatar: registered.name[0]?.toUpperCase() || registered.email[0]?.toUpperCase() || 'U',
+        plan: 'trial',
+        balance: 0,
         role: 'user',
-        activeKeys: 2,
-        createdAt: new Date().toISOString(),
+        activeKeys: 0,
+        createdAt: registered.createdAt,
       };
       this.saveSession({
-        accessToken: 'demo-token',
-        refreshToken: 'demo-refresh',
+        accessToken: `demo-token-${registered.id}`,
+        refreshToken: `demo-refresh-${registered.id}`,
         expiresAt: Date.now() + 24 * 60 * 60 * 1000,
         user: demoUser,
       });
@@ -291,7 +326,22 @@ export class AuthManager {
    */
   async signup(email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> {
     if (!this.supabase) {
-      return { success: false, error: 'Supabase not configured' };
+      const users = this.getDemoUsers();
+      const exists = users.some((user) => user.email.toLowerCase() === email.toLowerCase());
+
+      if (exists) {
+        return { success: false, error: 'Email đã được đăng ký trong bản chạy thử.' };
+      }
+
+      users.push({
+        id: `demo-${Date.now()}`,
+        email,
+        password,
+        name,
+        createdAt: new Date().toISOString(),
+      });
+      this.saveDemoUsers(users);
+      return { success: true };
     }
 
     try {

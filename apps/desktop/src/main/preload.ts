@@ -42,6 +42,12 @@ const electronAPI = {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   },
 
+  // System shortcuts
+  system: {
+    openclawQuickInstall: () => ipcRenderer.invoke('system:openclawQuickInstall'),
+    buyApi: () => ipcRenderer.invoke('system:buyApi'),
+  },
+
   // Platform info
   platform: {
     isElectron: true,
