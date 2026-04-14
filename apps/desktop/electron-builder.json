@@ -44,7 +44,6 @@
     "createStartMenuShortcut": true,
     "shortcutName": "Izzi OpenClaw",
     "deleteAppDataOnUninstall": false,
-    "license": "../../LICENSE",
     "installerLanguages": ["en_US", "vi_VN"],
     "language": 1066
   },
