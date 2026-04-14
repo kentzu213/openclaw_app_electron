@@ -12,7 +12,18 @@ function getMessage(state: DesktopUpdaterState): string | null {
     return `Bản cập nhật ${state.availableVersion || ''} đã tải xong. Cần khởi động lại để cài đặt.`.trim();
   }
   if (state.state === 'error' && state.error) {
-    return state.error;
+    // Show user-friendly message instead of raw HTTP error dumps
+    if (state.error.includes('406') || state.error.includes('releases')) {
+      return 'Không thể kết nối máy chủ cập nhật. Vui lòng thử lại sau.';
+    }
+    if (state.error.includes('net::') || state.error.includes('ENOTFOUND')) {
+      return 'Không có kết nối mạng. Vui lòng kiểm tra internet.';
+    }
+    // Truncate any other long error messages
+    const msg = state.error.length > 120
+      ? state.error.slice(0, 120) + '…'
+      : state.error;
+    return msg;
   }
   return null;
 }
