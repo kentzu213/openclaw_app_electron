@@ -105,9 +105,6 @@
     "vPrefixedTagName": true
   },
 
-  "autoUpdate": {
-    "provider": "github"
-  },
 
   "extraMetadata": {
     "main": "dist/main/index.js"
