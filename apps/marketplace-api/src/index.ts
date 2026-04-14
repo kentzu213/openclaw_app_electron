@@ -11,6 +11,7 @@ import { logger } from "hono/logger";
 import { extensionRoutes } from "./routes/extensions.js";
 import { reviewRoutes } from "./routes/reviews.js";
 import { developerRoutes } from "./routes/developers.js";
+import { uploadRoutes } from "./routes/uploads.js";
 
 const app = new Hono();
 
@@ -42,6 +43,9 @@ app.get("/", (c) => c.json({
     "PUT  /api/extensions/:id",
     "POST /api/extensions/:id/install",
     "GET  /api/extensions/categories",
+    "POST /api/extensions/:id/upload    ← NEW",
+    "GET  /api/extensions/:id/download  ← NEW",
+    "GET  /api/extensions/:id/versions  ← NEW",
     "GET  /api/extensions/:id/reviews",
     "POST /api/extensions/:id/reviews",
     "POST /api/developers/register",
@@ -53,7 +57,8 @@ app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOStri
 
 // --- Routes ---
 app.route("/api/extensions", extensionRoutes);
-app.route("/api/extensions", reviewRoutes);    // Nested under /api/extensions/:id/reviews
+app.route("/api/extensions", uploadRoutes);     // Upload: /:id/upload, /:id/download, /:id/versions
+app.route("/api/extensions", reviewRoutes);     // Nested under /api/extensions/:id/reviews
 app.route("/api/developers", developerRoutes);
 
 // --- 404 ---

@@ -11,7 +11,7 @@ interface SyncState {
 }
 
 // IzziAPI.com backend URL
-const IZZI_API_BASE = process.env.STARIZZI_API_URL || process.env.OPENCLAW_API_URL || 'https://api.izziapi.com';
+const IZZI_API_BASE = process.env.OPENCLAW_API_URL || 'https://api.izziapi.com';
 
 export class SyncEngine {
   private auth: AuthManager;

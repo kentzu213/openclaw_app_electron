@@ -1,34 +1,122 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TitleBar } from './components/TitleBar';
 import { Sidebar } from './components/Sidebar';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { OnboardingWizard } from './components/OnboardingWizard';
+import { UpdateBanner } from './components/UpdateBanner';
+import { UpdateNotification } from './components/UpdateNotification';
+import { AppLogoMark } from './components/AppIcons';
 import { LoginPage } from './pages/Login';
+import { ChatPage } from './pages/Chat';
+import { TasksPage } from './pages/Tasks';
+import { MemoryPage } from './pages/Memory';
+import { StatusPage } from './pages/Status';
 import { DashboardPage } from './pages/Dashboard';
 import { MarketplacePage } from './pages/Marketplace';
 import { ExtensionsPage } from './pages/Extensions';
 import { SettingsPage } from './pages/Settings';
+import { SetupWizardPage } from './pages/SetupWizard';
+import { CostDashboardPage } from './pages/CostDashboard';
+import { useAgentWorkspaceStore } from './store/agentWorkspace';
+import { vi } from './i18n/vi';
 
-type Page = 'dashboard' | 'marketplace' | 'extensions' | 'settings';
+type Page =
+  | 'chat'
+  | 'tasks'
+  | 'memory'
+  | 'status'
+  | 'dashboard'
+  | 'marketplace'
+  | 'extensions'
+  | 'settings'
+  | 'setup'
+  | 'costs';
 
-interface MainActionHandlers {
-  onOpenClawQuickInstall: () => Promise<void>;
-  onBuyApi: () => Promise<void>;
-}
-
-declare global {
-  interface Window {
-    electronAPI?: any;
-  }
-}
+const DEV_USER = {
+  name: 'Demo User',
+  email: 'demo@izziapi.com',
+  plan: 'pro',
+  balance: 42.5,
+  activeKeys: 3,
+  role: 'user',
+  avatar: 'D',
+};
 
 export function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const [currentPage, setCurrentPage] = useState<Page>('chat');
   const [isLoading, setIsLoading] = useState(true);
+  const [extensionUpdateCount, setExtensionUpdateCount] = useState(0);
+
+  const bootstrapWorkspace = useAgentWorkspaceStore((state) => state.bootstrap);
+  const ensureWorkspaceStream = useAgentWorkspaceStore((state) => state.ensureStream);
+  const ensureUpdaterStream = useAgentWorkspaceStore((state) => state.ensureUpdaterStream);
+  const ensureOnboardingAutoOpen = useAgentWorkspaceStore((state) => state.ensureOnboardingAutoOpen);
+  const refreshIntegrations = useAgentWorkspaceStore((state) => state.refreshIntegrations);
+  const updaterState = useAgentWorkspaceStore((state) => state.updaterState);
+  const checkForUpdates = useAgentWorkspaceStore((state) => state.checkForUpdates);
+  const downloadUpdate = useAgentWorkspaceStore((state) => state.downloadUpdate);
+  const restartToUpdate = useAgentWorkspaceStore((state) => state.restartToUpdate);
+  const resetWorkspace = useAgentWorkspaceStore((state) => state.reset);
 
   useEffect(() => {
-    checkAuth();
+    void checkAuth();
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      resetWorkspace();
+      return;
+    }
+
+    ensureWorkspaceStream();
+    ensureUpdaterStream();
+    void bootstrapWorkspace();
+    void ensureOnboardingAutoOpen();
+    void refreshIntegrations();
+    void checkForUpdates();
+  }, [
+    isAuthenticated,
+    bootstrapWorkspace,
+    ensureWorkspaceStream,
+    ensureUpdaterStream,
+    ensureOnboardingAutoOpen,
+    refreshIntegrations,
+    checkForUpdates,
+    resetWorkspace,
+  ]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    if (currentPage === 'settings' || currentPage === 'status') {
+      void checkForUpdates();
+    }
+  }, [checkForUpdates, currentPage, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !window.electronAPI?.extensionUpdates) {
+      return undefined;
+    }
+
+    async function pollUpdates() {
+      try {
+        const result = await window.electronAPI.extensionUpdates.getPending();
+        setExtensionUpdateCount(result?.count || 0);
+      } catch {
+        setExtensionUpdateCount(0);
+      }
+    }
+
+    void pollUpdates();
+    const interval = window.setInterval(pollUpdates, 10 * 60 * 1000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isAuthenticated]);
 
   async function checkAuth() {
     try {
@@ -38,41 +126,43 @@ export function App() {
           const user = await window.electronAPI.auth.getUser();
           setCurrentUser(user);
           setIsAuthenticated(true);
+          setCurrentPage('chat');
         }
+      } else {
+        setCurrentUser(DEV_USER);
+        setIsAuthenticated(true);
+        setCurrentPage('chat');
       }
-    } catch (err) {
-      console.error('Auth check failed:', err);
+    } catch (error) {
+      console.error('Auth check failed:', error);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }
 
   async function handleLogin(email: string, password: string): Promise<string | null> {
     try {
       if (!window.electronAPI) {
-        return 'Bản chạy thử yêu cầu mở trong Electron app.';
+        return 'Bạn chạy thử cần mở trong Electron app.';
       }
 
       const result = await window.electronAPI.auth.login({ email, password });
       if (result.success) {
         setCurrentUser(result.user);
         setIsAuthenticated(true);
+        setCurrentPage('chat');
         return null;
       }
       return result.error || 'Đăng nhập thất bại';
-    } catch (err: any) {
-      return err.message || 'Đăng nhập thất bại';
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Đăng nhập thất bại';
     }
   }
 
-  /**
-   * Signup handler — creates Supabase account (same project as izziapi.com)
-   * User created here is automatically synced with izziapi.com via shared Supabase project.
-   * Supabase trigger creates `profiles` row → visible on both platforms.
-   */
   async function handleSignup(email: string, password: string, name: string): Promise<string | null> {
     try {
       if (!window.electronAPI) {
-        return 'Bản chạy thử yêu cầu mở trong Electron app.';
+        return 'Bạn chạy thử cần mở trong Electron app.';
       }
 
       const result = await window.electronAPI.auth.signup({ email, password, name });
@@ -80,15 +170,15 @@ export function App() {
         return null;
       }
       return result.error || 'Đăng ký thất bại';
-    } catch (err: any) {
-      return err.message || 'Đăng ký thất bại';
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Đăng ký thất bại';
     }
   }
 
   async function handleGoogleLogin(): Promise<string | null> {
     try {
       if (!window.electronAPI) {
-        return 'Bản chạy thử yêu cầu mở trong Electron app.';
+        return 'Bạn chạy thử cần mở trong Electron app.';
       }
 
       const result = await window.electronAPI.auth.loginWithGoogle();
@@ -96,8 +186,8 @@ export function App() {
         return null;
       }
       return result.error || 'Đăng nhập Google thất bại';
-    } catch (err: any) {
-      return err.message || 'Đăng nhập Google thất bại';
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Đăng nhập Google thất bại';
     }
   }
 
@@ -106,43 +196,108 @@ export function App() {
       if (window.electronAPI) {
         await window.electronAPI.auth.logout();
       }
-    } catch {}
+    } catch {
+      // ignore
+    }
+
+    resetWorkspace();
     setCurrentUser(null);
     setIsAuthenticated(false);
-    setCurrentPage('dashboard');
+    setCurrentPage('chat');
   }
 
   async function handleRefreshProfile() {
     try {
       if (window.electronAPI) {
         const user = await window.electronAPI.auth.refreshProfile();
-        if (user) setCurrentUser(user);
+        if (user) {
+          setCurrentUser(user);
+        }
       }
-    } catch (err) {
-      console.error('Profile refresh failed:', err);
+    } catch (error) {
+      console.error('Profile refresh failed:', error);
     }
   }
 
   async function handleOpenClawQuickInstall() {
     try {
       await window.electronAPI?.system.openclawQuickInstall();
-    } catch (err) {
-      console.error('OpenClaw quick install failed:', err);
+    } catch (error) {
+      console.error('OpenClaw quick install failed:', error);
     }
   }
 
   async function handleBuyApi() {
     try {
       await window.electronAPI?.system.buyApi();
-    } catch (err) {
-      console.error('Buy API action failed:', err);
+    } catch (error) {
+      console.error('Buy API action failed:', error);
+    }
+  }
+
+  function renderPage() {
+    switch (currentPage) {
+      case 'chat':
+        return <ChatPage />;
+      case 'tasks':
+        return <TasksPage />;
+      case 'memory':
+        return <MemoryPage />;
+      case 'status':
+        return <StatusPage />;
+      case 'dashboard':
+        return (
+          <DashboardPage
+            user={currentUser}
+            onRefresh={handleRefreshProfile}
+            onOpenClawQuickInstall={handleOpenClawQuickInstall}
+            onBuyApi={handleBuyApi}
+            onGoChat={() => setCurrentPage('chat')}
+          />
+        );
+      case 'marketplace':
+        return <MarketplacePage />;
+      case 'extensions':
+        return (
+          <ExtensionsPage
+            onGoMarketplace={() => setCurrentPage('marketplace')}
+            onOpenClawQuickInstall={handleOpenClawQuickInstall}
+          />
+        );
+      case 'setup':
+        return (
+          <SetupWizardPage
+            onComplete={() => setCurrentPage('chat')}
+          />
+        );
+      case 'costs':
+        return <CostDashboardPage t={vi} />;
+      case 'settings':
+        return (
+          <SettingsPage
+            user={currentUser}
+            onLogout={handleLogout}
+            onRefresh={handleRefreshProfile}
+            onOpenClawQuickInstall={handleOpenClawQuickInstall}
+            onBuyApi={handleBuyApi}
+          />
+        );
+      default:
+        return <ChatPage />;
     }
   }
 
   if (isLoading) {
     return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div className="login-card__logo-icon" style={{ width: 48, height: 48, fontSize: 24 }}>⚡</div>
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+        <div style={{
+          width: 56,
+          height: 56,
+          filter: 'drop-shadow(0 0 16px rgba(103, 232, 249, 0.4))',
+          animation: 'pulse 2s ease-in-out infinite',
+        }}>
+          <AppLogoMark />
+        </div>
       </div>
     );
   }
@@ -160,15 +315,6 @@ export function App() {
     );
   }
 
-  function renderPage() {
-    switch (currentPage) {
-      case 'dashboard': return <DashboardPage user={currentUser} onRefresh={handleRefreshProfile} onOpenClawQuickInstall={handleOpenClawQuickInstall} onBuyApi={handleBuyApi} />;
-      case 'marketplace': return <MarketplacePage />;
-      case 'extensions': return <ExtensionsPage onGoMarketplace={() => setCurrentPage('marketplace')} onOpenClawQuickInstall={handleOpenClawQuickInstall} />;
-      case 'settings': return <SettingsPage user={currentUser} onLogout={handleLogout} onRefresh={handleRefreshProfile} onOpenClawQuickInstall={handleOpenClawQuickInstall} onBuyApi={handleBuyApi} />;
-    }
-  }
-
   return (
     <>
       <TitleBar />
@@ -177,11 +323,35 @@ export function App() {
           currentPage={currentPage}
           onNavigate={setCurrentPage}
           user={currentUser}
+          updateCount={extensionUpdateCount}
+          appUpdateAvailable={updaterState.state === 'available'}
+          appUpdateDownloaded={updaterState.state === 'downloaded'}
+          onUpdateClick={() => {
+            if (updaterState.state === 'downloaded') {
+              void restartToUpdate();
+            } else if (updaterState.state === 'available') {
+              void downloadUpdate();
+            }
+          }}
         />
-        <main className="main-content">
-          {renderPage()}
+        <main className="main-content" role="main" aria-label="Noi dung chinh">
+          <UpdateBanner
+            updaterState={updaterState}
+            onCheck={() => void checkForUpdates()}
+            onDownload={() => void downloadUpdate()}
+            onRestart={() => void restartToUpdate()}
+          />
+          <ErrorBoundary fallbackTitle="Loi hien thi trang">
+            {renderPage()}
+          </ErrorBoundary>
         </main>
       </div>
+      <OnboardingWizard user={currentUser} />
+      <UpdateNotification
+        updaterState={updaterState}
+        onDownload={() => void downloadUpdate()}
+        onRestart={() => void restartToUpdate()}
+      />
     </>
   );
 }

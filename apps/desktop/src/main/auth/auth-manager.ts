@@ -11,11 +11,11 @@ import { safeStorage, shell, BrowserWindow } from 'electron';
 import { DatabaseManager } from '../db/database';
 
 // IzziAPI.com Backend URL
-const IZZI_API_BASE = process.env.STARIZZI_API_URL || process.env.OPENCLAW_API_URL || 'https://api.izziapi.com';
+const IZZI_API_BASE = process.env.OPENCLAW_API_URL || 'https://api.izziapi.com';
 
 // Supabase config — same project as izziapi.com
-const SUPABASE_URL = process.env.STARIZZI_SUPABASE_URL || process.env.OPENCLAW_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.STARIZZI_SUPABASE_ANON_KEY || process.env.OPENCLAW_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL = process.env.OPENCLAW_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.OPENCLAW_SUPABASE_ANON_KEY || '';
 
 export interface User {
   id: string;
@@ -188,6 +188,7 @@ export class AuthManager {
         expiresAt: Date.now() + 24 * 60 * 60 * 1000,
         user: demoUser,
       });
+      this.db.appendDiagnosticEvent({ type: 'auth.login', status: 'success', detail: `Demo login: ${email}` });
       console.log('[Auth] Demo login:', email);
       return { success: true, user: demoUser };
     }
@@ -197,6 +198,7 @@ export class AuthManager {
 
       if (error) {
         console.error('[Auth] Supabase login error:', error.message);
+        this.db.appendDiagnosticEvent({ type: 'auth.login', status: 'error', detail: error.message, meta: { email } });
         return { success: false, error: error.message };
       }
 
@@ -220,11 +222,13 @@ export class AuthManager {
         user,
       });
 
+      this.db.appendDiagnosticEvent({ type: 'auth.login', status: 'success', detail: `Supabase login: ${user.email}` });
       console.log('[Auth] Login successful:', user.email);
       return { success: true, user };
     } catch (err: any) {
       const message = err.message || 'Login failed';
       console.error('[Auth] Login error:', message);
+      this.db.appendDiagnosticEvent({ type: 'auth.login', status: 'error', detail: message, meta: { email } });
       return { success: false, error: message };
     }
   }
@@ -242,7 +246,7 @@ export class AuthManager {
       const { data, error } = await this.supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: 'starizzi://auth/callback',
+          redirectTo: 'openclaw://auth/callback',
           skipBrowserRedirect: true, // We'll handle the redirect ourselves
         },
       });
@@ -341,6 +345,7 @@ export class AuthManager {
         createdAt: new Date().toISOString(),
       });
       this.saveDemoUsers(users);
+      this.db.appendDiagnosticEvent({ type: 'auth.signup', status: 'success', detail: `Demo signup: ${email}` });
       return { success: true };
     }
 
@@ -352,9 +357,11 @@ export class AuthManager {
       });
 
       if (error) {
+        this.db.appendDiagnosticEvent({ type: 'auth.signup', status: 'error', detail: error.message, meta: { email } });
         return { success: false, error: error.message };
       }
 
+      this.db.appendDiagnosticEvent({ type: 'auth.signup', status: 'success', detail: `Supabase signup: ${email}` });
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message };
@@ -370,6 +377,7 @@ export class AuthManager {
       // Ignore logout API errors
     }
     this.clearSession();
+    this.db.appendDiagnosticEvent({ type: 'auth.logout', status: 'info', detail: 'User logged out' });
     console.log('[Auth] Logged out');
   }
 

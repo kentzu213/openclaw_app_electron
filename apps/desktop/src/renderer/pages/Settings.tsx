@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { AgentStatusBadge } from '../components/AgentStatusBadge';
+import { useAgentWorkspaceStore } from '../store/agentWorkspace';
 
 interface SettingsPageProps {
   user: any;
@@ -8,139 +10,232 @@ interface SettingsPageProps {
   onBuyApi?: () => void;
 }
 
-export function SettingsPage({ user, onLogout, onRefresh, onOpenClawQuickInstall, onBuyApi }: SettingsPageProps) {
+export function SettingsPage({
+  user,
+  onLogout,
+  onRefresh,
+  onOpenClawQuickInstall,
+  onBuyApi,
+}: SettingsPageProps) {
+  const runtimeState = useAgentWorkspaceStore((state) => state.runtimeState);
+  const diagnostics = useAgentWorkspaceStore((state) => state.diagnostics);
+  const onboardingState = useAgentWorkspaceStore((state) => state.onboardingState);
+  const integrations = useAgentWorkspaceStore((state) => state.integrations);
+  const updaterState = useAgentWorkspaceStore((state) => state.updaterState);
+  const refreshDiagnostics = useAgentWorkspaceStore((state) => state.refreshDiagnostics);
+  const refreshIntegrations = useAgentWorkspaceStore((state) => state.refreshIntegrations);
+  const openOnboarding = useAgentWorkspaceStore((state) => state.openOnboarding);
+  const checkForUpdates = useAgentWorkspaceStore((state) => state.checkForUpdates);
+  const downloadUpdate = useAgentWorkspaceStore((state) => state.downloadUpdate);
+  const restartToUpdate = useAgentWorkspaceStore((state) => state.restartToUpdate);
+
+  useEffect(() => {
+    void Promise.all([refreshDiagnostics(10), refreshIntegrations()]);
+  }, [refreshDiagnostics, refreshIntegrations]);
+
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-header__title">⚙️ Cài đặt</h1>
-        <p className="page-header__subtitle">
-          Quản lý tài khoản và cấu hình ứng dụng
-        </p>
+        <h1 className="page-header__title">Settings</h1>
+        <p className="page-header__subtitle">Quản lý tài khoản, managed runner, onboarding và diagnostic của desktop app.</p>
       </div>
 
-      {/* Account */}
-      <div className="card" style={{ marginBottom: '24px' }}>
+      {onboardingState?.hasPendingSetup && (
+        <div className="card section-gap card--accent">
+          <div className="card__header">
+            <h3 className="card__title">Finish setup</h3>
+            <button className="btn btn--primary btn--sm" onClick={openOnboarding}>
+              Mở onboarding
+            </button>
+          </div>
+          <p className="card__body-copy">
+            Wizard vẫn chưa được hoàn tất. Bạn có thể mở lại bất kỳ lúc nào để kết nối Telegram, Discord và Zalo.
+          </p>
+        </div>
+      )}
+
+      <div className="card section-gap">
         <div className="card__header">
-          <h3 className="card__title">👤 Tài khoản</h3>
+          <h3 className="card__title">Managed Runner</h3>
+        </div>
+
+        <div className="settings-group">
+          <div className="settings-item">
+            <div>
+              <div className="settings-item__label">Connection</div>
+              <div className="settings-item__description">Desktop app đang sử dụng managed runner qua IzziAPI.</div>
+            </div>
+            <AgentStatusBadge state={runtimeState.state} detail={runtimeState.lastError} />
+          </div>
+
+          <SettingRow label="Plan" value={(user?.plan || 'free').toString()} />
+          <SettingRow
+            label="Balance"
+            value={user?.balance !== undefined ? `$${Number(user.balance).toFixed(2)}` : '$0.00'}
+          />
+          <SettingRow
+            label="Last agent status"
+            value={`${runtimeState.state} / ${new Date(runtimeState.updatedAt).toLocaleString('vi-VN')}`}
+          />
+          {runtimeState.lastError && <SettingRow label="Last error" value={runtimeState.lastError} />}
+        </div>
+      </div>
+
+      <div className="card section-gap">
+        <div className="card__header">
+          <h3 className="card__title">Desktop updates</h3>
+          <div className="action-row">
+            <button className="btn btn--ghost btn--sm" onClick={() => void checkForUpdates()}>
+              Kiểm tra
+            </button>
+            {updaterState.state === 'available' && (
+              <button className="btn btn--primary btn--sm" onClick={() => void downloadUpdate()}>
+                Tải xuống
+              </button>
+            )}
+            {updaterState.state === 'downloaded' && (
+              <button className="btn btn--primary btn--sm" onClick={() => void restartToUpdate()}>
+                Khởi động lại
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="settings-group">
+          <SettingRow label="State" value={updaterState.state} />
+          <SettingRow label="Current version" value={updaterState.version || 'N/A'} />
+          <SettingRow label="Available version" value={updaterState.availableVersion || 'Không có'} />
+          <SettingRow
+            label="Progress"
+            value={typeof updaterState.progress === 'number' ? `${updaterState.progress}%` : 'N/A'}
+          />
+          {updaterState.error && <SettingRow label="Updater error" value={updaterState.error} />}
+        </div>
+      </div>
+
+      <div className="card section-gap">
+        <div className="card__header">
+          <h3 className="card__title">Integrations</h3>
+          <button className="btn btn--ghost btn--sm" onClick={() => void refreshIntegrations()}>
+            Làm mới
+          </button>
+        </div>
+
+        <div className="settings-group">
+          {integrations.map((integration) => (
+            <div key={integration.provider} className="settings-item">
+              <div>
+                <div className="settings-item__label">{integration.provider}</div>
+                <div className="settings-item__description">
+                  {integration.accountLabel || 'Chưa kết nối'}
+                </div>
+              </div>
+              <span
+                className={`sync-badge sync-badge--${
+                  integration.status === 'connected'
+                    ? 'success'
+                    : integration.status === 'error'
+                      ? 'error'
+                      : 'idle'
+                }`}
+              >
+                {integration.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card section-gap">
+        <div className="card__header">
+          <h3 className="card__title">Account</h3>
           <button
             className="btn btn--ghost btn--sm"
             onClick={() => window.electronAPI?.shell.openExternal('https://izziapi.com/dashboard/settings')}
           >
-            Chỉnh sửa trên IzziAPI →
+            Mở trên IzziAPI
           </button>
         </div>
 
         <div className="settings-group">
-          <SettingRow label="Tên hiển thị" value={user?.name || 'N/A'} />
+          <SettingRow label="Name" value={user?.name || 'N/A'} />
           <SettingRow label="Email" value={user?.email || 'N/A'} />
-          <SettingRow label="Gói dịch vụ" value={(user?.plan || 'free').charAt(0).toUpperCase() + (user?.plan || 'free').slice(1)} />
-          <SettingRow label="Vai trò" value={user?.role === 'admin' ? '🛡️ Admin' : '👤 User'} />
-          <SettingRow label="Số dư" value={user?.balance !== undefined ? `$${user.balance.toFixed(2)}` : '$0.00'} />
-          <SettingRow label="API Keys" value={`${user?.activeKeys || 0} đang hoạt động`} />
-          <SettingRow label="Tham gia từ" value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString('vi-VN') : 'N/A'} />
+          <SettingRow label="Role" value={user?.role || 'user'} />
+          <SettingRow label="Active keys" value={String(user?.activeKeys || 0)} />
+          <SettingRow
+            label="Joined"
+            value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString('vi-VN') : 'N/A'}
+          />
         </div>
       </div>
 
-      {/* Core actions */}
-      <div className="card" style={{ marginBottom: '24px' }}>
+      <div className="card section-gap">
         <div className="card__header">
-          <h3 className="card__title">⚡ Tác vụ chính</h3>
+          <h3 className="card__title">Core actions</h3>
         </div>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <div className="action-row">
           <button className="btn btn--primary" onClick={onOpenClawQuickInstall}>
-            ⚙️ Mở / cài OpenClaw
+            Mở / cài OpenClaw
           </button>
           <button className="btn btn--secondary" onClick={onBuyApi}>
-            💳 Mua API trên IzziAPI
+            Mua API trên IzziAPI
+          </button>
+          <button className="btn btn--ghost" onClick={onRefresh}>
+            Refresh profile
           </button>
         </div>
       </div>
 
-      {/* Connection */}
-      <div className="card" style={{ marginBottom: '24px' }}>
+      <div className="card section-gap">
         <div className="card__header">
-          <h3 className="card__title">🌐 Kết nối</h3>
-        </div>
-
-        <div className="settings-group">
-          <div className="settings-item">
-            <div>
-              <div className="settings-item__label">IzziAPI.com</div>
-              <div className="settings-item__description">Kết nối dữ liệu và API</div>
-            </div>
-            <span className="sync-badge sync-badge--success">✅ Đã kết nối</span>
-          </div>
-
-          <div className="settings-item">
-            <div>
-              <div className="settings-item__label">Đồng bộ tự động</div>
-              <div className="settings-item__description">Tự động đồng bộ dữ liệu mỗi 5 phút</div>
-            </div>
-            <span className="sync-badge sync-badge--success">✅ Bật</span>
-          </div>
-
-          <div className="settings-item">
-            <div>
-              <div className="settings-item__label">Extension Marketplace</div>
-              <div className="settings-item__description">Kết nối chợ tiện ích mở rộng</div>
-            </div>
-            <span className="sync-badge sync-badge--success">✅ Đã kết nối</span>
-          </div>
-        </div>
-      </div>
-
-      {/* App Info */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div className="card__header">
-          <h3 className="card__title">ℹ️ Thông tin ứng dụng</h3>
-        </div>
-
-        <div className="settings-group">
-          <SettingRow label="Phiên bản" value="Starizzi v0.1.0" />
-          <SettingRow label="Electron" value="v34.2.0" />
-          <SettingRow label="Runtime" value={`Node.js ${typeof process !== 'undefined' ? process.version : 'N/A'}`} />
-          <SettingRow label="Platform" value={typeof navigator !== 'undefined' ? navigator.platform : 'N/A'} />
-        </div>
-      </div>
-
-      {/* Developer */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div className="card__header">
-          <h3 className="card__title">🛠️ Dành cho nhà phát triển</h3>
-        </div>
-        <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '16px', lineHeight: 1.6 }}>
-          Bạn muốn đóng gói và bán tiện ích trên Marketplace? Đăng ký trở thành Developer để bắt đầu kiếm thu nhập.
-        </p>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button
-            className="btn btn--primary"
-            onClick={() => window.electronAPI?.shell.openExternal('https://izziapi.com/developer')}
-          >
-            🚀 Đăng ký Developer
-          </button>
-          <button
-            className="btn btn--secondary"
-            onClick={() => window.electronAPI?.shell.openExternal('https://izziapi.com/docs/extensions')}
-          >
-            📚 Đọc tài liệu SDK
+          <h3 className="card__title">Diagnostics</h3>
+          <button className="btn btn--ghost btn--sm" onClick={() => void refreshDiagnostics(10)}>
+            Làm mới
           </button>
         </div>
+
+        {diagnostics.length === 0 ? (
+          <p className="empty-copy">
+            Chưa có diagnostic event nào được ghi lại.
+          </p>
+        ) : (
+          <div className="diagnostic-list">
+            {diagnostics.map((event) => (
+              <div key={event.id} className="diagnostic-card">
+                <div className="diagnostic-card__head">
+                  <strong>{event.type}</strong>
+                  <span
+                    className={`sync-badge sync-badge--${
+                      event.status === 'error' ? 'error' : event.status === 'success' ? 'success' : 'idle'
+                    }`}
+                  >
+                    {event.status}
+                  </span>
+                </div>
+                <div className="diagnostic-card__body">{event.detail}</div>
+                <div className="diagnostic-card__time">
+                  {new Date(event.timestamp).toLocaleString('vi-VN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Danger Zone */}
-      <div className="card" style={{ borderColor: 'rgba(255, 107, 107, 0.2)' }}>
+      <div className="card">
         <div className="card__header">
-          <h3 className="card__title" style={{ color: 'var(--color-error)' }}>⚠️ Vùng nguy hiểm</h3>
+          <h3 className="card__title card__title--danger">
+            Danger zone
+          </h3>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="danger-row">
           <div>
-            <div style={{ fontWeight: 600, marginBottom: '4px' }}>Đăng xuất</div>
-            <div style={{ fontSize: '13px', color: 'var(--color-text-tertiary)' }}>
-              Ngắt kết nối tài khoản IzziAPI.com khỏi app
+            <div className="danger-row__title">Đăng xuất</div>
+            <div className="danger-row__copy">
+              Ngắt kết nối tài khoản IzziAPI khỏi desktop app.
             </div>
           </div>
-          <button id="btn-logout" className="btn btn--danger" onClick={onLogout}>
-            🔓 Đăng xuất
+          <button className="btn btn--danger" onClick={onLogout}>
+            Đăng xuất
           </button>
         </div>
       </div>

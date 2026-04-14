@@ -62,7 +62,7 @@ const FALLBACK_EXTENSIONS = [
     category: 'Marketing',
     rating_avg: 4.5,
     install_count: 8900,
-    pricing_model: 'paid',
+    pricing_model: 'free',
     price_monthly: 9.99,
     manifest: { icon: '📱' },
   },
@@ -75,7 +75,7 @@ const FALLBACK_EXTENSIONS = [
     category: 'Content',
     rating_avg: 4.9,
     install_count: 25000,
-    pricing_model: 'paid',
+    pricing_model: 'free',
     price_monthly: 19.99,
     manifest: { icon: '✨' },
   },
@@ -100,7 +100,7 @@ const FALLBACK_EXTENSIONS = [
     category: 'Email',
     rating_avg: 4.6,
     install_count: 6700,
-    pricing_model: 'paid',
+    pricing_model: 'free',
     price_monthly: 14.99,
     manifest: { icon: '📧' },
   },
@@ -113,7 +113,7 @@ const FALLBACK_EXTENSIONS = [
     category: 'Customer Support',
     rating_avg: 4.4,
     install_count: 3200,
-    pricing_model: 'paid',
+    pricing_model: 'free',
     price_monthly: 24.99,
     manifest: { icon: '🤖' },
   },
@@ -209,10 +209,12 @@ export class ExtensionManager {
         // Ignore API errors for install tracking
       }
 
+      this.db.appendDiagnosticEvent({ type: 'extension.install', status: 'success', detail: `${ext.display_name} v${ext.version}` });
       console.log(`[Extensions] Installed: ${ext.display_name} v${ext.version}`);
       return { success: true };
     } catch (err: any) {
       console.error('[Extensions] Install failed:', err.message);
+      this.db.appendDiagnosticEvent({ type: 'extension.install', status: 'error', detail: err.message });
       return { success: false, error: err.message };
     }
   }
@@ -241,33 +243,60 @@ export class ExtensionManager {
     }
   }
 
+  // ── Marketplace Cache (SQLite, TTL 5min) ──
+  private marketplaceCache: { data: any[]; timestamp: number } | null = null;
+  private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+  private isCacheValid(): boolean {
+    return this.marketplaceCache !== null &&
+      (Date.now() - this.marketplaceCache.timestamp) < this.CACHE_TTL_MS;
+  }
+
   async searchMarketplace(query?: string): Promise<any[]> {
+    // Return from cache if valid and no specific query
+    if (!query && this.isCacheValid()) {
+      console.log('[Extensions] Returning cached marketplace data');
+      return this.marketplaceCache!.data;
+    }
+
     // Try to fetch from real Marketplace API
     try {
       const params = new URLSearchParams();
       if (query) params.set('q', query);
       params.set('limit', '20');
 
-      const response = await fetch(`${MARKETPLACE_API}/api/extensions?${params.toString()}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
+      const response = await fetch(`${MARKETPLACE_API}/api/extensions?${params.toString()}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
       if (response.ok) {
         const data = await response.json() as any;
         if (data.extensions && data.extensions.length > 0) {
           console.log(`[Extensions] Fetched ${data.extensions.length} from Marketplace API`);
-          return data.extensions.map((e: any) => ({
+          const mapped = data.extensions.map((e: any) => ({
             id: e.id,
             name: e.name,
             displayName: e.display_name,
             description: e.description,
-            author: e.profiles?.name || 'Unknown',
+            author: e.profiles?.name || 'OpenClaw',
             version: e.version,
             category: e.category,
             rating: e.rating_avg,
             installs: e.install_count,
-            price: e.pricing_model !== 'free'
-              ? { monthly: e.price_monthly, yearly: e.price_yearly }
-              : null,
             icon: e.manifest?.icon || '📦',
+            free: true,
           }));
+
+          // Cache full listing (no query)
+          if (!query) {
+            this.marketplaceCache = { data: mapped, timestamp: Date.now() };
+          }
+
+          return mapped;
         }
       }
     } catch (err) {
@@ -286,20 +315,32 @@ export class ExtensionManager {
       );
     }
 
-    return results.map(e => ({
+    const mapped = results.map(e => ({
       id: e.id,
       name: e.name,
       displayName: e.display_name,
       description: e.description,
-      author: 'Starizzi',
+      author: 'OpenClaw',
       version: e.version,
       category: e.category,
       rating: e.rating_avg,
       installs: e.install_count,
-      price: e.pricing_model !== 'free'
-        ? { monthly: e.price_monthly }
-        : null,
       icon: e.manifest?.icon || '📦',
+      free: true,
     }));
+
+    // Cache fallback too
+    if (!query) {
+      this.marketplaceCache = { data: mapped, timestamp: Date.now() };
+    }
+
+    return mapped;
+  }
+
+  /** Force refresh marketplace cache */
+  clearMarketplaceCache(): void {
+    this.marketplaceCache = null;
+    console.log('[Extensions] Marketplace cache cleared');
   }
 }
+

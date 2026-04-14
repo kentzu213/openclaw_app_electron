@@ -1,5 +1,5 @@
 /**
- * Starizzi API Client — Renderer-side HTTP client
+ * OpenClaw API Client — Renderer-side HTTP client
  * Used in browser dev mode (no Electron) to call APIs directly
  * In Electron mode, IPC is preferred via window.electronAPI
  */
