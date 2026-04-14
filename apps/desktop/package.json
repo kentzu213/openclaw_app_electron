@@ -1,8 +1,14 @@
 {
   "name": "@openclaw/desktop",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "private": true,
-  "description": "Starizzi Desktop App - Electron",
+  "description": "Izzi OpenClaw Desktop App - Electron",
+  "author": "kentzu213",
+  "homepage": "https://izziapi.com/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kentzu213/openclaw_app_electron.git"
+  },
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "concurrently \"pnpm dev:main\" \"pnpm dev:renderer\"",
@@ -12,17 +18,24 @@
     "start": "electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
-    "clean": "rimraf dist out",
-    "lint": "eslint src/"
+    "build:win": "pnpm build && electron-builder --win",
+    "build:mac": "pnpm build && electron-builder --mac",
+    "build:all": "pnpm build && electron-builder --win --mac",
+    "clean": "rimraf dist out release",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "test:smoke": "vitest run src/**/*.smoke.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
     "axios": "^1.7.9",
     "better-sqlite3": "^11.7.0",
     "electron-store": "^10.0.0",
+    "electron-updater": "^6.8.3",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.1",
     "@types/better-sqlite3": "^7.6.12",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
@@ -36,23 +49,69 @@
     "react-router-dom": "^7.1.5",
     "rimraf": "^6.0.1",
     "typescript": "^5.7.3",
-    "vite": "^6.1.0"
+    "vite": "^6.1.0",
+    "vitest": "^4.1.2"
   },
   "build": {
     "appId": "com.openclaw.desktop",
-    "productName": "Starizzi",
+    "productName": "Izzi OpenClaw",
     "directories": {
-      "output": "out"
+      "output": "out",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
+      "build/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "build/icon.png"
+      }
+    ],
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "afterSign": "scripts/notarize.js",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kentzu213",
+        "repo": "Izzi-Openclaw-Setup",
+        "releaseType": "release",
+        "vPrefixedTagName": true
+      }
+    ],
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     },
     "mac": {
-      "target": "dmg"
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist"
+    },
+    "dmg": {
+      "backgroundColor": "#0f1117"
     },
     "linux": {
       "target": "AppImage"

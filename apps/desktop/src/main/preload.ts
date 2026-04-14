@@ -1,7 +1,21 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type {
+  AgentBootstrapPayload,
+  AgentMemory,
+  AgentRuntimeState,
+  AgentSendMessageResult,
+  AgentStreamEvent,
+  AgentTask,
+  AgentTaskStatus,
+  ChatSession,
+  DiagnosticEvent,
+  IntegrationConnection,
+  IntegrationProvider,
+  OnboardingState,
+} from './agent/types';
+import type { DesktopUpdaterState } from './updater/types';
 
 const electronAPI = {
-  // Window controls
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),
@@ -9,7 +23,6 @@ const electronAPI = {
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
   },
 
-  // Auth (Supabase-based)
   auth: {
     login: (credentials: { email: string; password: string }) =>
       ipcRenderer.invoke('auth:login', credentials),
@@ -23,13 +36,11 @@ const electronAPI = {
     refreshProfile: () => ipcRenderer.invoke('auth:refreshProfile'),
   },
 
-  // Sync
   sync: {
     start: () => ipcRenderer.invoke('sync:start'),
     status: () => ipcRenderer.invoke('sync:status'),
   },
 
-  // Extensions
   extensions: {
     list: () => ipcRenderer.invoke('extensions:list'),
     install: (extensionId: string) => ipcRenderer.invoke('extensions:install', extensionId),
@@ -37,18 +48,149 @@ const electronAPI = {
     marketplace: (query?: string) => ipcRenderer.invoke('extensions:marketplace', query),
   },
 
-  // Shell
+  extensionRuntime: {
+    list: () => ipcRenderer.invoke('extensions:runtime:list'),
+    start: (extensionId: string) => ipcRenderer.invoke('extensions:runtime:start', extensionId),
+    stop: (extensionId: string) => ipcRenderer.invoke('extensions:runtime:stop', extensionId),
+    enable: (extensionId: string) => ipcRenderer.invoke('extensions:runtime:enable', extensionId),
+    disable: (extensionId: string) => ipcRenderer.invoke('extensions:runtime:disable', extensionId),
+    permissions: (extensionId: string) => ipcRenderer.invoke('extensions:runtime:permissions', extensionId),
+    grantPermissions: (extensionId: string, permissions: string[]) =>
+      ipcRenderer.invoke('extensions:runtime:grantPermissions', extensionId, permissions),
+    executeCommand: (extensionId: string, commandId: string, ...args: any[]) =>
+      ipcRenderer.invoke('extensions:runtime:executeCommand', extensionId, commandId, ...args),
+    installOcx: () => ipcRenderer.invoke('extensions:runtime:installOcx'),
+    installFromMarketplace: (extensionId: string) =>
+      ipcRenderer.invoke('extensions:runtime:installFromMarketplace', extensionId),
+    onUIRequest: (callback: (data: any) => void) => {
+      ipcRenderer.on('extension:uiRequest', (_event, data) => callback(data));
+    },
+  },
+
+  extensionUpdates: {
+    checkForUpdates: () => ipcRenderer.invoke('extensions:updates:check'),
+    getPending: () => ipcRenderer.invoke('extensions:updates:pending'),
+  },
+
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   },
 
-  // System shortcuts
+  setup: {
+    checkSystem: () => ipcRenderer.invoke('setup:checkSystem'),
+    verifyApiKey: (apiKey: string) => ipcRenderer.invoke('setup:verifyApiKey', apiKey),
+    executeSetup: (config: any) => ipcRenderer.invoke('setup:executeSetup', config),
+    reinstall: () => ipcRenderer.invoke('setup:reinstall'),
+    uninstall: (cleanupConfig: boolean) => ipcRenderer.invoke('setup:uninstall', cleanupConfig),
+    versionCheck: () => ipcRenderer.invoke('setup:versionCheck'),
+    scanConfig: () => ipcRenderer.invoke('setup:scanConfig'),
+    onProgress: (callback: (progress: any) => void) => {
+      ipcRenderer.on('setup:progress', (_event, data) => callback(data));
+      return () => { ipcRenderer.removeAllListeners('setup:progress'); };
+    },
+  },
+
   system: {
     openclawQuickInstall: () => ipcRenderer.invoke('system:openclawQuickInstall'),
     buyApi: () => ipcRenderer.invoke('system:buyApi'),
   },
 
-  // Platform info
+  diagnostics: {
+    getEvents: () => ipcRenderer.invoke('diagnostics:getEvents'),
+  },
+
+  agent: {
+    bootstrap: (): Promise<AgentBootstrapPayload> => ipcRenderer.invoke('agent:bootstrap'),
+    newSession: (): Promise<ChatSession> => ipcRenderer.invoke('agent:newSession'),
+    sendMessage: (sessionId: string, text: string): Promise<AgentSendMessageResult> =>
+      ipcRenderer.invoke('agent:sendMessage', sessionId, text),
+    getStatus: (sessionId?: string): Promise<AgentRuntimeState> =>
+      ipcRenderer.invoke('agent:getStatus', sessionId),
+    listTasks: (sessionId?: string): Promise<AgentTask[]> =>
+      ipcRenderer.invoke('agent:listTasks', sessionId),
+    updateTaskStatus: (taskId: string, status: AgentTaskStatus): Promise<AgentTask | null> =>
+      ipcRenderer.invoke('agent:updateTaskStatus', taskId, status),
+    listMemories: (sessionId?: string): Promise<AgentMemory[]> =>
+      ipcRenderer.invoke('agent:listMemories', sessionId),
+    pinMemory: (memoryId: string, pinned: boolean): Promise<AgentMemory | null> =>
+      ipcRenderer.invoke('agent:pinMemory', memoryId, pinned),
+    deleteMemory: (memoryId: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('agent:deleteMemory', memoryId),
+    getDiagnostics: (limit?: number): Promise<DiagnosticEvent[]> =>
+      ipcRenderer.invoke('agent:getDiagnostics', limit),
+    onStream: (listener: (event: AgentStreamEvent) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: AgentStreamEvent) => listener(data);
+      ipcRenderer.on('agent:stream', handler);
+      return () => {
+        ipcRenderer.removeListener('agent:stream', handler);
+      };
+    },
+  },
+
+  integrations: {
+    list: (): Promise<IntegrationConnection[]> => ipcRenderer.invoke('integrations:list'),
+    beginConnect: (provider: IntegrationProvider): Promise<{ provider: IntegrationProvider; url: string }> =>
+      ipcRenderer.invoke('integrations:beginConnect', provider),
+    disconnect: (provider: IntegrationProvider): Promise<IntegrationConnection[]> =>
+      ipcRenderer.invoke('integrations:disconnect', provider),
+  },
+
+  onboarding: {
+    getState: (): Promise<OnboardingState> => ipcRenderer.invoke('onboarding:getState'),
+    markSeen: (): Promise<OnboardingState> => ipcRenderer.invoke('onboarding:markSeen'),
+    dismiss: (): Promise<OnboardingState> => ipcRenderer.invoke('onboarding:dismiss'),
+    complete: (): Promise<OnboardingState> => ipcRenderer.invoke('onboarding:complete'),
+  },
+
+  updater: {
+    getState: (): Promise<DesktopUpdaterState> => ipcRenderer.invoke('updater:getState'),
+    check: (): Promise<DesktopUpdaterState> => ipcRenderer.invoke('updater:check'),
+    download: (): Promise<DesktopUpdaterState> => ipcRenderer.invoke('updater:download'),
+    quitAndInstall: (): Promise<{ success: boolean }> => ipcRenderer.invoke('updater:quitAndInstall'),
+    onState: (listener: (state: DesktopUpdaterState) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: DesktopUpdaterState) => listener(data);
+      ipcRenderer.on('updater:state', handler);
+      return () => {
+        ipcRenderer.removeListener('updater:state', handler);
+      };
+    },
+  },
+
+  budget: {
+    getStatus: () => ipcRenderer.invoke('budget:getStatus'),
+    getLimits: () => ipcRenderer.invoke('budget:getLimits'),
+    setLimits: (limits: { daily?: number; weekly?: number; monthly?: number }) =>
+      ipcRenderer.invoke('budget:setLimits', limits),
+    getAlerts: (since?: number) => ipcRenderer.invoke('budget:getAlerts', since),
+    getAdvice: () => ipcRenderer.invoke('budget:getAdvice'),
+    purge: (keepDays?: number) => ipcRenderer.invoke('budget:purge', keepDays),
+    onAlert: (callback: (alert: any) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => callback(data);
+      ipcRenderer.on('budget:alert', handler);
+      return () => { ipcRenderer.removeListener('budget:alert', handler); };
+    },
+  },
+
+  costGate: {
+    evaluate: (request: {
+      modelId: string;
+      inputText: string;
+      expectedOutputTokens?: number;
+      isVietnamese?: boolean;
+      taskType?: string;
+    }) => ipcRenderer.invoke('costGate:evaluate', request),
+    getConfig: () => ipcRenderer.invoke('costGate:getConfig'),
+    setAutoDowngrade: (enabled: boolean) => ipcRenderer.invoke('costGate:setAutoDowngrade', enabled),
+    setMaxCostPerRequest: (usd: number) => ipcRenderer.invoke('costGate:setMaxCostPerRequest', usd),
+  },
+
+  smartRouter: {
+    route: (taskType: string, inputText: string, isVietnamese?: boolean) =>
+      ipcRenderer.invoke('smartRouter:route', taskType, inputText, isVietnamese),
+    getPreferences: () => ipcRenderer.invoke('smartRouter:getPreferences'),
+    setPreferences: (prefs: any) => ipcRenderer.invoke('smartRouter:setPreferences', prefs),
+  },
+
   platform: {
     isElectron: true,
     os: process.platform,

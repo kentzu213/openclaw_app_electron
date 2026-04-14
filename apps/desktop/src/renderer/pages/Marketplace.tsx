@@ -1,5 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../lib/api-client';
+import { ExtensionDetailPage } from './ExtensionDetail';
+import { DeveloperUploadPage } from './DeveloperUpload';
+import { DeveloperDashboardPage } from './DeveloperDashboard';
+import { SkeletonGrid } from '../components/Skeleton';
 
 interface MarketplaceExtension {
   id: string;
@@ -40,6 +44,13 @@ export function MarketplacePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const PAGE_SIZE = 12;
+  const [selectedExtension, setSelectedExtension] = useState<MarketplaceExtension | null>(null);
+  const [showDevUpload, setShowDevUpload] = useState(false);
+  const [showDevDash, setShowDevDash] = useState(false);
+  const [searchSuggestions, setSearchSuggestions] = useState<MarketplaceExtension[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [sortBy, setSortBy] = useState<'popular' | 'rating' | 'newest' | 'name'>('popular');
+  const searchRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     checkApiAndLoad();
@@ -48,7 +59,7 @@ export function MarketplacePage() {
 
   useEffect(() => {
     filterExtensions();
-  }, [extensions, searchQuery, activeCategory]);
+  }, [extensions, searchQuery, activeCategory, sortBy]);
 
   async function checkApiAndLoad() {
     setIsLoading(true);
@@ -143,8 +154,23 @@ export function MarketplacePage() {
     if (activeCategory !== 'Tất cả') {
       filtered = filtered.filter(e => e.category === activeCategory);
     }
+    // Apply sorting
+    switch (sortBy) {
+      case 'popular':
+        filtered.sort((a, b) => b.installs - a.installs);
+        break;
+      case 'rating':
+        filtered.sort((a, b) => b.rating - a.rating);
+        break;
+      case 'newest':
+        filtered.sort((a, b) => b.version.localeCompare(a.version));
+        break;
+      case 'name':
+        filtered.sort((a, b) => a.displayName.localeCompare(b.displayName));
+        break;
+    }
     setFilteredExtensions(filtered);
-  }, [extensions, searchQuery, activeCategory]);
+  }, [extensions, searchQuery, activeCategory, sortBy]);
 
   // Debounced API search
   useEffect(() => {
@@ -155,26 +181,41 @@ export function MarketplacePage() {
     return () => clearTimeout(timer);
   }, [searchQuery, activeCategory]);
 
+  const [installToast, setInstallToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
   async function handleInstall(ext: MarketplaceExtension) {
     setInstallingId(ext.id);
+    setInstallToast({ message: `Đang tải ${ext.displayName}...`, type: 'info' });
+
     try {
-      if (window.electronAPI) {
-        const result = await window.electronAPI.extensions.install(ext.id);
+      if (window.electronAPI?.extensionRuntime) {
+        // Use the full download → SHA-256 verify → install pipeline
+        const result = await window.electronAPI.extensionRuntime.installFromMarketplace(ext.id);
         if (result.success) {
           setInstalledIds(prev => new Set([...prev, ext.id]));
+          setInstallToast({ message: `✅ Đã cài đặt ${ext.displayName}!`, type: 'success' });
+        } else {
+          setInstallToast({ message: `❌ ${result.error || 'Cài đặt thất bại'}`, type: 'error' });
         }
       } else if (apiStatus === 'online') {
+        // Browser mode — API-only install tracking
         await apiClient.installExtension(ext.id);
         setInstalledIds(prev => new Set([...prev, ext.id]));
+        setInstallToast({ message: `✅ Đã đánh dấu cài đặt ${ext.displayName}`, type: 'success' });
       } else {
         // Demo mode
         await new Promise(r => setTimeout(r, 1500));
         setInstalledIds(prev => new Set([...prev, ext.id]));
+        setInstallToast({ message: `✅ Demo — ${ext.displayName} đã được cài đặt`, type: 'success' });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Install failed:', err);
+      setInstallToast({ message: `❌ Lỗi: ${err.message || 'Unknown error'}`, type: 'error' });
     }
+
     setInstallingId(null);
+    // Auto-dismiss toast after 4 seconds
+    setTimeout(() => setInstallToast(null), 4000);
   }
 
   function formatInstalls(count: number): string {
@@ -193,13 +234,117 @@ export function MarketplacePage() {
     }
   }
 
+  // If a detail extension is selected, render the detail view
+  if (selectedExtension) {
+    return (
+      <div>
+        <div className="page-header">
+          <h1 className="page-header__title">🏪 Marketplace</h1>
+        </div>
+        <ExtensionDetailPage
+          extension={selectedExtension}
+          isInstalled={installedIds.has(selectedExtension.id)}
+          onInstall={() => handleInstall(selectedExtension)}
+          isInstalling={installingId === selectedExtension.id}
+          onBack={() => setSelectedExtension(null)}
+        />
+
+        {/* Install Toast */}
+        {installToast && (
+          <div style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            padding: '14px 20px',
+            borderRadius: '12px',
+            background: installToast.type === 'success'
+              ? 'linear-gradient(135deg, rgba(0, 184, 148, 0.95), rgba(0, 206, 201, 0.95))'
+              : installToast.type === 'error'
+                ? 'linear-gradient(135deg, rgba(255, 107, 107, 0.95), rgba(238, 82, 83, 0.95))'
+                : 'linear-gradient(135deg, rgba(99, 110, 255, 0.95), rgba(108, 92, 231, 0.95))',
+            color: '#fff',
+            fontSize: '13px',
+            fontWeight: '500',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+            backdropFilter: 'blur(12px)',
+            zIndex: 9999,
+            animation: 'toast-slide-in 0.3s ease-out',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            maxWidth: '400px',
+          }}>
+            {installToast.message}
+          </div>
+        )}
+
+        <style>{`
+          @keyframes toast-slide-in {
+            from { transform: translateY(20px) scale(0.95); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // Developer Upload view
+  if (showDevUpload) {
+    return (
+      <DeveloperUploadPage onBack={() => setShowDevUpload(false)} />
+    );
+  }
+
+  // Developer Dashboard view
+  if (showDevDash) {
+    return (
+      <DeveloperDashboardPage onBack={() => setShowDevDash(false)} />
+    );
+  }
+
   return (
     <div>
-      <div className="page-header">
-        <h1 className="page-header__title">🏪 Marketplace</h1>
-        <p className="page-header__subtitle">
-          Khám phá và cài đặt tiện ích mở rộng cho Starizzi
-        </p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 className="page-header__title">🏪 Marketplace</h1>
+          <p className="page-header__subtitle">
+            Khám phá và cài đặt tiện ích mở rộng cho Izzi OpenClaw
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+          <button
+            className="btn btn--ghost btn--sm"
+            onClick={() => setShowDevDash(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              whiteSpace: 'nowrap' as const,
+            }}
+          >
+            👨‍💻 Dashboard
+          </button>
+          <button
+            className="btn btn--accent"
+            onClick={() => setShowDevUpload(true)}
+            style={{
+              background: 'linear-gradient(135deg, #636eff, #6c5ce7)',
+              color: '#fff',
+              border: 'none',
+              padding: '8px 16px',
+              borderRadius: '10px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              whiteSpace: 'nowrap' as const,
+            }}
+          >
+            🚀 Đăng tải tiện ích
+          </button>
+        </div>
       </div>
 
       {/* API Status Badge */}
@@ -248,53 +393,112 @@ export function MarketplacePage() {
       )}
 
       {/* Search */}
-      <div className="search-bar">
-        <span className="search-bar__icon">🔍</span>
+      <div className="search-bar" ref={searchRef} style={{ position: 'relative' }} role="search">
+        <span className="search-bar__icon" aria-hidden="true">🔍</span>
         <input
           id="marketplace-search"
           className="search-bar__input"
           type="text"
           placeholder="Tìm kiếm tiện ích... (VD: SEO, chatbot, email)"
+          aria-label="Tìm kiếm tiện ích mở rộng"
+          aria-expanded={showSuggestions}
+          aria-autocomplete="list"
+          autoComplete="off"
           value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') {
+              setShowSuggestions(false);
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          onChange={e => {
+            const q = e.target.value;
+            setSearchQuery(q);
+            if (q.trim().length >= 2) {
+              const matches = extensions.filter(ext =>
+                ext.displayName.toLowerCase().includes(q.toLowerCase()) ||
+                ext.description.toLowerCase().includes(q.toLowerCase()) ||
+                ext.category.toLowerCase().includes(q.toLowerCase())
+              ).slice(0, 5);
+              setSearchSuggestions(matches);
+              setShowSuggestions(matches.length > 0);
+            } else {
+              setShowSuggestions(false);
+            }
+          }}
+          onFocus={() => {
+            if (searchQuery.trim().length >= 2 && searchSuggestions.length > 0) {
+              setShowSuggestions(true);
+            }
+          }}
+          onBlur={() => {
+            // Delayed hide so clicks on suggestions register
+            setTimeout(() => setShowSuggestions(false), 200);
+          }}
         />
+        {/* Search Suggestions Dropdown */}
+        {showSuggestions && searchSuggestions.length > 0 && (
+          <div className="search-suggestions">
+            {searchSuggestions.map(ext => (
+              <button
+                key={ext.id}
+                className="search-suggestion"
+                onMouseDown={() => {
+                  setSelectedExtension(ext);
+                  setShowSuggestions(false);
+                  setSearchQuery('');
+                }}
+              >
+                <span className="search-suggestion__icon">{ext.icon}</span>
+                <div className="search-suggestion__info">
+                  <span className="search-suggestion__name">{ext.displayName}</span>
+                  <span className="search-suggestion__category">{ext.category}</span>
+                </div>
+                <span className="search-suggestion__rating">{'★'.repeat(Math.floor(ext.rating))} {ext.rating.toFixed(1)}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Category Filter */}
-      <div className="filter-pills">
-        {CATEGORIES.map(cat => (
-          <button
-            key={cat}
-            className={`filter-pill ${activeCategory === cat ? 'filter-pill--active' : ''}`}
-            onClick={() => setActiveCategory(cat)}
-          >
-            {cat}
-          </button>
-        ))}
+      {/* Sort & Category Controls */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
+        {/* Category Filter */}
+        <div className="filter-pills" style={{ marginBottom: 0 }}>
+          {CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              className={`filter-pill ${activeCategory === cat ? 'filter-pill--active' : ''}`}
+              onClick={() => setActiveCategory(cat)}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Sort Controls */}
+        <div className="sort-controls">
+          <span className="sort-controls__label">Sắp xếp:</span>
+          {([
+            { key: 'popular' as const, icon: '🔥', label: 'Phổ biến' },
+            { key: 'rating' as const, icon: '⭐', label: 'Đánh giá' },
+            { key: 'newest' as const, icon: '🆕', label: 'Mới nhất' },
+            { key: 'name' as const, icon: '🔤', label: 'Tên' },
+          ]).map(s => (
+            <button
+              key={s.key}
+              className={`sort-pill ${sortBy === s.key ? 'sort-pill--active' : ''}`}
+              onClick={() => setSortBy(s.key)}
+            >
+              {s.icon} {s.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Loading State */}
       {isLoading ? (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '60px 0',
-          gap: '12px',
-        }}>
-          <div style={{
-            width: 40,
-            height: 40,
-            border: '3px solid var(--color-bg-hover)',
-            borderTopColor: 'var(--color-accent-primary)',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite',
-          }} />
-          <span style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>
-            Đang tải marketplace...
-          </span>
-        </div>
+        <SkeletonGrid count={6} />
       ) : (
         <>
           {/* Extension Grid */}
@@ -314,7 +518,7 @@ export function MarketplacePage() {
 
               return (
                 <div key={ext.id} className="ext-card animate-in" style={{ animationDelay: `${i * 60}ms` }}>
-                  <div className="ext-card__header">
+                  <div className="ext-card__header" style={{ cursor: 'pointer' }} onClick={() => setSelectedExtension(ext)}>
                     <div className="ext-card__icon">{ext.icon}</div>
                     <div className="ext-card__meta">
                       <div className="ext-card__name">{ext.displayName}</div>
@@ -411,10 +615,71 @@ export function MarketplacePage() {
         </>
       )}
 
-      {/* Spin animation */}
+      {/* Install Toast Notification */}
+      {installToast && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          padding: '14px 20px',
+          borderRadius: '12px',
+          background: installToast.type === 'success'
+            ? 'linear-gradient(135deg, rgba(0, 184, 148, 0.95), rgba(0, 206, 201, 0.95))'
+            : installToast.type === 'error'
+              ? 'linear-gradient(135deg, rgba(255, 107, 107, 0.95), rgba(238, 82, 83, 0.95))'
+              : 'linear-gradient(135deg, rgba(99, 110, 255, 0.95), rgba(108, 92, 231, 0.95))',
+          color: '#fff',
+          fontSize: '13px',
+          fontWeight: '500',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(12px)',
+          zIndex: 9999,
+          animation: 'toast-slide-in 0.3s ease-out',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          maxWidth: '400px',
+        }}>
+          {installToast.type === 'info' && (
+            <span style={{
+              display: 'inline-block',
+              width: 16,
+              height: 16,
+              border: '2px solid rgba(255,255,255,0.3)',
+              borderTopColor: '#fff',
+              borderRadius: '50%',
+              animation: 'spin 0.6s linear infinite',
+            }} />
+          )}
+          {installToast.message}
+          <button
+            onClick={() => setInstallToast(null)}
+            style={{
+              background: 'rgba(255,255,255,0.2)',
+              border: 'none',
+              color: '#fff',
+              borderRadius: '50%',
+              width: 20,
+              height: 20,
+              fontSize: '11px',
+              cursor: 'pointer',
+              marginLeft: '4px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >✕</button>
+        </div>
+      )}
+
+      {/* Animations */}
       <style>{`
         @keyframes spin {
           to { transform: rotate(360deg); }
+        }
+        @keyframes toast-slide-in {
+          from { transform: translateY(20px) scale(0.95); opacity: 0; }
+          to { transform: translateY(0) scale(1); opacity: 1; }
         }
       `}</style>
     </div>

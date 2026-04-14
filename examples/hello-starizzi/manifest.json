@@ -1,0 +1,49 @@
+{
+  "name": "hello-starizzi",
+  "version": "0.1.0",
+  "displayName": "Hello Starizzi",
+  "description": "Tiện ích mẫu — minh họa cách xây dựng extension cho Starizzi",
+  "main": "dist/index.js",
+  "engine": ">=0.1.0",
+  "author": {
+    "name": "Starizzi Team",
+    "url": "https://izziapi.com"
+  },
+  "permissions": [
+    "storage.local",
+    "ui.notification",
+    "net.http"
+  ],
+  "activationEvents": [
+    "onCommand:hello-starizzi.greet",
+    "onCommand:hello-starizzi.fetchQuote"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "hello-starizzi.greet",
+        "title": "Chào hỏi",
+        "category": "Demo",
+        "icon": "👋"
+      },
+      {
+        "id": "hello-starizzi.fetchQuote",
+        "title": "Lấy trích dẫn ngẫu nhiên",
+        "category": "Demo",
+        "icon": "💬"
+      },
+      {
+        "id": "hello-starizzi.counter",
+        "title": "Đếm số lần dùng",
+        "category": "Demo",
+        "icon": "🔢"
+      }
+    ]
+  },
+  "categories": ["Utilities", "Demo"],
+  "tags": ["sample", "hello-world", "demo"],
+  "pricing": {
+    "model": "free"
+  },
+  "license": "MIT"
+}

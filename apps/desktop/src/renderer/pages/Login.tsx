@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AppLogoMark } from '../components/AppIcons';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string) => Promise<string | null>;
@@ -93,8 +94,10 @@ export function LoginPage({ onLogin, onGoogleLogin, onSignup }: LoginPageProps) 
     <div className="login-page">
       <div className="login-card">
         <div className="login-card__logo">
-          <div className="login-card__logo-icon">⚡</div>
-          <h1>Starizzi</h1>
+          <div className="login-card__logo-icon">
+            <AppLogoMark />
+          </div>
+          <h1>IZZI OPENCLAW</h1>
           <p>
             {mode === 'login'
               ? 'Kết nối với IzziAPI.com để bắt đầu'

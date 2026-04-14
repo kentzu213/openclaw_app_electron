@@ -1,0 +1,127 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.izziapi.openclaw",
+  "productName": "Izzi OpenClaw",
+  "copyright": "Copyright © 2024-2026 Starizzi Technologies",
+  "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+
+  "files": [
+    "dist/**/*",
+    "!dist/renderer/**/*.map",
+    "package.json"
+  ],
+
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build/icon.ico",
+    "publisherName": "Starizzi Technologies",
+    "requestedExecutionLevel": "asInvoker",
+    "signAndEditExecutable": true
+  },
+
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico",
+    "installerHeaderIcon": "build/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Izzi OpenClaw",
+    "deleteAppDataOnUninstall": false,
+    "license": "../../LICENSE",
+    "installerLanguages": ["en_US", "vi_VN"],
+    "language": 1066
+  },
+
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "icon": "build/icon.icns",
+    "category": "public.app-category.developer-tools",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.plist",
+    "darkModeSupport": true
+  },
+
+  "dmg": {
+    "contents": [
+      { "x": 130, "y": 180 },
+      { "x": 410, "y": 180, "type": "link", "path": "/Applications" }
+    ],
+    "background": "build/dmg-background.png",
+    "window": {
+      "width": 540,
+      "height": 380
+    }
+  },
+
+  "linux": {
+    "target": [
+      { "target": "AppImage", "arch": ["x64"] },
+      { "target": "deb", "arch": ["x64"] },
+      { "target": "rpm", "arch": ["x64"] }
+    ],
+    "icon": "build/icons",
+    "category": "Development",
+    "desktop": {
+      "Name": "Izzi OpenClaw",
+      "Comment": "Smart AI assistant for every platform",
+      "Terminal": "false"
+    },
+    "synopsis": "AI-powered assistant desktop app"
+  },
+
+  "publish": {
+    "provider": "github",
+    "owner": "kentzu213",
+    "repo": "Izzi-Openclaw-Setup",
+    "releaseType": "release",
+    "vPrefixedTagName": true
+  },
+
+  "autoUpdate": {
+    "provider": "github"
+  },
+
+  "extraMetadata": {
+    "main": "dist/main/index.js"
+  },
+
+  "asar": true,
+  "asarUnpack": [
+    "node_modules/sharp/**/*",
+    "node_modules/@napi-rs/**/*"
+  ],
+
+  "electronDownload": {
+    "mirror": "https://npmmirror.com/mirrors/electron/"
+  },
+
+  "afterSign": "scripts/notarize.js"
+}
