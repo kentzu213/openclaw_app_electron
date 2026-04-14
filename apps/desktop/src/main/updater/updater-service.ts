@@ -88,7 +88,17 @@ export class UpdaterService extends EventEmitter {
     }
 
     this.adapter.autoDownload = false;
-    await this.adapter?.checkForUpdates();
+    try {
+      await this.adapter.checkForUpdates();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.setState({
+        state: 'error',
+        version: this.appVersion,
+        error: message,
+        checkedAt: new Date().toISOString(),
+      });
+    }
   }
 
   async download(): Promise<void> {
