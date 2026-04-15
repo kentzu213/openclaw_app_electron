@@ -80,6 +80,14 @@ export class AuthManager {
           : stored;
         this.session = JSON.parse(decrypted);
 
+        // If Supabase is now configured but session is a demo token,
+        // clear it to force real authentication
+        if (this.supabase && this.session?.accessToken?.startsWith('demo-token-')) {
+          console.log('[Auth] Clearing stale demo session — Supabase is now configured, requiring real login');
+          this.clearSession();
+          return;
+        }
+
         // Check if session is expired
         if (this.session && this.session.expiresAt < Date.now()) {
           console.log('[Auth] Stored session expired, will refresh');
