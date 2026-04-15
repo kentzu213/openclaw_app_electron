@@ -208,7 +208,18 @@ export class AuthManager {
       if (error) {
         console.error('[Auth] Supabase login error:', error.message);
         this.db.appendDiagnosticEvent({ type: 'auth.login', status: 'error', detail: error.message, meta: { email } });
-        return { success: false, error: error.message };
+
+        // Translate common Supabase errors to helpful Vietnamese messages
+        let userMessage = error.message;
+        if (error.message === 'Invalid login credentials') {
+          userMessage = 'Email hoặc mật khẩu không đúng. Nếu chưa có tài khoản, vui lòng bấm "Đăng ký miễn phí" hoặc "Đăng nhập với Google".';
+        } else if (error.message.includes('Email not confirmed')) {
+          userMessage = 'Email chưa được xác nhận. Vui lòng kiểm tra hộp thư để xác nhận tài khoản.';
+        } else if (error.message.includes('Too many requests')) {
+          userMessage = 'Quá nhiều lần thử. Vui lòng đợi vài phút rồi thử lại.';
+        }
+
+        return { success: false, error: userMessage };
       }
 
       if (!data.session) {
@@ -246,17 +257,20 @@ export class AuthManager {
    * Login with Google OAuth via Supabase
    * Opens system browser for OAuth flow
    */
-  async loginWithGoogle(): Promise<{ success: boolean; error?: string }> {
+  async loginWithGoogle(): Promise<{ success: boolean; user?: User; error?: string }> {
     if (!this.supabase) {
       return { success: false, error: 'Supabase not configured' };
     }
 
     try {
+      // Use Supabase's own callback URL (no custom protocol needed)
+      const redirectUrl = `${SUPABASE_URL}/auth/v1/callback`;
+
       const { data, error } = await this.supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: 'openclaw://auth/callback',
-          skipBrowserRedirect: true, // We'll handle the redirect ourselves
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true,
         },
       });
 
@@ -264,54 +278,114 @@ export class AuthManager {
         return { success: false, error: error.message };
       }
 
-      if (data.url) {
-        // Open OAuth URL in system browser
-        await shell.openExternal(data.url);
-        return { success: true };
+      if (!data.url) {
+        return { success: false, error: 'No OAuth URL returned' };
       }
 
-      return { success: false, error: 'No OAuth URL returned' };
+      // Open OAuth in a BrowserWindow popup (much more reliable than custom protocol)
+      return await this.openOAuthPopup(data.url);
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   }
 
   /**
-   * Handle OAuth callback (e.g., from custom protocol handler)
+   * Open OAuth flow in a BrowserWindow and intercept the callback
+   * This is the standard Electron approach — much more reliable than custom:// protocols
    */
-  async handleOAuthCallback(url: string): Promise<{ success: boolean; user?: User; error?: string }> {
-    if (!this.supabase) {
-      return { success: false, error: 'Supabase not configured' };
-    }
+  private openOAuthPopup(authUrl: string): Promise<{ success: boolean; user?: User; error?: string }> {
+    return new Promise((resolve) => {
+      const popup = new BrowserWindow({
+        width: 500,
+        height: 700,
+        show: true,
+        autoHideMenuBar: true,
+        title: 'Đăng nhập với Google',
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+      });
 
+      let resolved = false;
+      const finish = (result: { success: boolean; user?: User; error?: string }) => {
+        if (resolved) return;
+        resolved = true;
+        try { popup.close(); } catch { /* already closed */ }
+        resolve(result);
+      };
+
+      // Intercept navigation to detect the callback URL with tokens
+      popup.webContents.on('will-redirect', async (_event, url) => {
+        console.log('[Auth] OAuth redirect URL:', url);
+        await this.tryExtractOAuthTokens(url, finish);
+      });
+
+      popup.webContents.on('will-navigate', async (_event, url) => {
+        console.log('[Auth] OAuth navigate URL:', url);
+        await this.tryExtractOAuthTokens(url, finish);
+      });
+
+      // Also handle page title changes (some OAuth flows land on a page with tokens in the URL)
+      popup.webContents.on('did-navigate', async (_event, url) => {
+        console.log('[Auth] OAuth did-navigate URL:', url);
+        await this.tryExtractOAuthTokens(url, finish);
+      });
+
+      popup.on('closed', () => {
+        finish({ success: false, error: 'Cửa sổ đăng nhập đã bị đóng' });
+      });
+
+      popup.loadURL(authUrl);
+    });
+  }
+
+  /**
+   * Try to extract OAuth tokens from a URL (hash fragment or query params)
+   */
+  private async tryExtractOAuthTokens(
+    url: string,
+    finish: (result: { success: boolean; user?: User; error?: string }) => void,
+  ) {
     try {
-      // Extract tokens from callback URL
-      const params = new URL(url).searchParams;
-      const accessToken = params.get('access_token');
-      const refreshToken = params.get('refresh_token');
+      const parsed = new URL(url);
 
-      if (!accessToken || !refreshToken) {
-        // Try hash fragment
-        const hash = new URL(url).hash.substring(1);
-        const hashParams = new URLSearchParams(hash);
-        const at = hashParams.get('access_token');
-        const rt = hashParams.get('refresh_token');
+      // Supabase puts tokens in the hash fragment: #access_token=...&refresh_token=...
+      let accessToken: string | null = null;
+      let refreshToken: string | null = null;
 
-        if (at && rt) {
-          const { data, error } = await this.supabase.auth.setSession({
-            access_token: at,
-            refresh_token: rt,
-          });
+      // Check hash fragment first (most common for Supabase OAuth)
+      if (parsed.hash && parsed.hash.length > 1) {
+        const hashParams = new URLSearchParams(parsed.hash.substring(1));
+        accessToken = hashParams.get('access_token');
+        refreshToken = hashParams.get('refresh_token');
+      }
 
-          if (error || !data.session) {
-            return { success: false, error: error?.message || 'Failed to set session' };
-          }
+      // Fallback: check query params
+      if (!accessToken) {
+        accessToken = parsed.searchParams.get('access_token');
+        refreshToken = parsed.searchParams.get('refresh_token');
+      }
 
+      // Also check for authorization code flow
+      const code = parsed.searchParams.get('code');
+
+      if (accessToken && refreshToken) {
+        console.log('[Auth] Got OAuth tokens from URL');
+        const result = await this.setSessionFromTokens(accessToken, refreshToken);
+        finish(result);
+      } else if (code && this.supabase) {
+        // Exchange authorization code for session
+        console.log('[Auth] Got OAuth code, exchanging for session');
+        const { data, error } = await this.supabase.auth.exchangeCodeForSession(code);
+        if (error || !data.session) {
+          finish({ success: false, error: error?.message || 'Failed to exchange code' });
+        } else {
           const profile = await this.fetchProfile(data.session.access_token);
           const user: User = profile || {
             id: data.user?.id || '',
             email: data.user?.email || '',
-            name: data.user?.user_metadata?.name || '',
+            name: data.user?.user_metadata?.full_name || data.user?.user_metadata?.name || data.user?.email?.split('@')[0] || '',
             plan: 'free',
           };
 
@@ -322,13 +396,97 @@ export class AuthManager {
             user,
           });
 
-          return { success: true, user };
+          this.db.appendDiagnosticEvent({ type: 'auth.login', status: 'success', detail: `Google OAuth: ${user.email}` });
+          finish({ success: true, user });
         }
+      }
+      // If no tokens/code found, let navigation continue (user is still in OAuth flow)
+    } catch {
+      // URL parse errors are expected for non-callback URLs — ignore them
+    }
+  }
 
-        return { success: false, error: 'No tokens in callback URL' };
+  /**
+   * Set session from access_token + refresh_token (from OAuth hash fragment)
+   */
+  private async setSessionFromTokens(accessToken: string, refreshToken: string): Promise<{ success: boolean; user?: User; error?: string }> {
+    if (!this.supabase) return { success: false, error: 'Supabase not configured' };
+
+    try {
+      const { data, error } = await this.supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+
+      if (error || !data.session) {
+        return { success: false, error: error?.message || 'Failed to set session' };
       }
 
-      return { success: false, error: 'Invalid callback' };
+      const profile = await this.fetchProfile(data.session.access_token);
+      const user: User = profile || {
+        id: data.user?.id || '',
+        email: data.user?.email || '',
+        name: data.user?.user_metadata?.full_name || data.user?.user_metadata?.name || data.user?.email?.split('@')[0] || '',
+        plan: 'free',
+      };
+
+      this.saveSession({
+        accessToken: data.session.access_token,
+        refreshToken: data.session.refresh_token,
+        expiresAt: (data.session.expires_at || 0) * 1000,
+        user,
+      });
+
+      this.db.appendDiagnosticEvent({ type: 'auth.login', status: 'success', detail: `Google OAuth: ${user.email}` });
+      console.log('[Auth] Google OAuth login successful:', user.email);
+      return { success: true, user };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Handle OAuth callback (legacy — kept for custom protocol handler compatibility)
+   */
+  async handleOAuthCallback(url: string): Promise<{ success: boolean; user?: User; error?: string }> {
+    if (!this.supabase) {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    try {
+      const parsed = new URL(url);
+
+      // Check hash fragment first
+      let accessToken: string | null = null;
+      let refreshToken: string | null = null;
+
+      if (parsed.hash && parsed.hash.length > 1) {
+        const hashParams = new URLSearchParams(parsed.hash.substring(1));
+        accessToken = hashParams.get('access_token');
+        refreshToken = hashParams.get('refresh_token');
+      }
+
+      // Fallback: query params
+      if (!accessToken) {
+        accessToken = parsed.searchParams.get('access_token');
+        refreshToken = parsed.searchParams.get('refresh_token');
+      }
+
+      if (accessToken && refreshToken) {
+        return await this.setSessionFromTokens(accessToken, refreshToken);
+      }
+
+      // Try code exchange
+      const code = parsed.searchParams.get('code');
+      if (code) {
+        const { data, error } = await this.supabase.auth.exchangeCodeForSession(code);
+        if (error || !data.session) {
+          return { success: false, error: error?.message || 'Failed to exchange code' };
+        }
+        return await this.setSessionFromTokens(data.session.access_token, data.session.refresh_token);
+      }
+
+      return { success: false, error: 'No tokens or code in callback URL' };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -336,8 +494,9 @@ export class AuthManager {
 
   /**
    * Signup new user via Supabase Auth
+   * After successful signup, auto-login the user
    */
-  async signup(email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> {
+  async signup(email: string, password: string, name: string): Promise<{ success: boolean; needsConfirmation?: boolean; error?: string }> {
     if (!this.supabase) {
       const users = this.getDemoUsers();
       const exists = users.some((user) => user.email.toLowerCase() === email.toLowerCase());
@@ -359,7 +518,7 @@ export class AuthManager {
     }
 
     try {
-      const { error } = await this.supabase.auth.signUp({
+      const { data, error } = await this.supabase.auth.signUp({
         email,
         password,
         options: { data: { name, full_name: name } },
@@ -367,11 +526,44 @@ export class AuthManager {
 
       if (error) {
         this.db.appendDiagnosticEvent({ type: 'auth.signup', status: 'error', detail: error.message, meta: { email } });
-        return { success: false, error: error.message };
+
+        // Translate common errors
+        let msg = error.message;
+        if (error.message.includes('already registered') || error.message.includes('already been registered')) {
+          msg = 'Email đã được đăng ký. Vui lòng dùng "Đăng nhập" hoặc "Đăng nhập với Google".';
+        } else if (error.message.includes('password')) {
+          msg = 'Mật khẩu phải có ít nhất 6 ký tự.';
+        }
+
+        return { success: false, error: msg };
       }
 
       this.db.appendDiagnosticEvent({ type: 'auth.signup', status: 'success', detail: `Supabase signup: ${email}` });
-      return { success: true };
+
+      // If Supabase returned a session (email confirmation disabled), auto-login
+      if (data.session) {
+        const profile = await this.fetchProfile(data.session.access_token);
+        const user: User = profile || {
+          id: data.user?.id || '',
+          email: data.user?.email || email,
+          name: data.user?.user_metadata?.name || name,
+          plan: 'free',
+        };
+
+        this.saveSession({
+          accessToken: data.session.access_token,
+          refreshToken: data.session.refresh_token,
+          expiresAt: (data.session.expires_at || 0) * 1000,
+          user,
+        });
+
+        console.log('[Auth] Signup + auto-login successful:', email);
+        return { success: true };
+      }
+
+      // If no session, user needs to confirm email first
+      console.log('[Auth] Signup successful, awaiting email confirmation:', email);
+      return { success: true, needsConfirmation: true };
     } catch (err: any) {
       return { success: false, error: err.message };
     }

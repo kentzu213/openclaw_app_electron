@@ -182,6 +182,19 @@ export function App() {
 
       const result = await window.electronAPI.auth.signup({ email, password, name });
       if (result.success) {
+        // Check if auto-login happened (session was returned from signup)
+        const user = await window.electronAPI.auth.getUser();
+        if (user) {
+          setCurrentUser(user);
+          setIsAuthenticated(true);
+          return null; // No need to show "check email" - user is already logged in
+        }
+
+        // If needsConfirmation, return a special message (not an error)
+        if (result.needsConfirmation) {
+          return null; // Login page will show success message about email confirmation
+        }
+
         return null;
       }
       return result.error || 'Đăng ký thất bại';
@@ -198,6 +211,11 @@ export function App() {
 
       const result = await window.electronAPI.auth.loginWithGoogle();
       if (result.success) {
+        // The popup OAuth flow now returns the user directly
+        if (result.user) {
+          setCurrentUser(result.user as any);
+          setIsAuthenticated(true);
+        }
         return null;
       }
       return result.error || 'Đăng nhập Google thất bại';
