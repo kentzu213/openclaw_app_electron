@@ -14,8 +14,9 @@ import { DatabaseManager } from '../db/database';
 const IZZI_API_BASE = process.env.OPENCLAW_API_URL || 'https://api.izziapi.com';
 
 // Supabase config — same project as izziapi.com
-const SUPABASE_URL = process.env.OPENCLAW_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.OPENCLAW_SUPABASE_ANON_KEY || '';
+// Anon key is public (RLS-protected) — same approach as izzi-web frontend
+const SUPABASE_URL = process.env.OPENCLAW_SUPABASE_URL || 'https://qdtfaebdgyyujygxnvqi.supabase.co';
+const SUPABASE_ANON_KEY = process.env.OPENCLAW_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkdGZhZWJkZ3l5dWp5Z3hudnFpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1Mjk2NjYsImV4cCI6MjA5MDEwNTY2Nn0.tVQKuDcX3WFSNTPxiZU4aenv4OVsJ9bMouxYPiYkUck';
 
 export interface User {
   id: string;

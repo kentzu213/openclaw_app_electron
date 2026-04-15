@@ -5,6 +5,8 @@ import { ChatEmptyState } from '../components/ChatEmptyState';
 import { ChatMessageList } from '../components/ChatMessageList';
 import { useAgentWorkspaceStore } from '../store/agentWorkspace';
 
+const DASHBOARD_URL = 'https://izziapi.com/dashboard';
+
 export function ChatPage() {
   const [draft, setDraft] = useState('');
   const session = useAgentWorkspaceStore((state) => state.session);
@@ -45,6 +47,17 @@ export function ChatPage() {
 
         <div className="chat-page__header-actions">
           <AgentStatusBadge state={runtimeState.state} detail={runtimeState.lastError} />
+          <button
+            type="button"
+            className="btn btn--glass-dashboard"
+            onClick={() => window.electronAPI?.shell.openExternal(DASHBOARD_URL)}
+            title="Open IzziAPI Dashboard"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M6 3H3.5A1.5 1.5 0 002 4.5v8A1.5 1.5 0 003.5 14h8a1.5 1.5 0 001.5-1.5V10m-4-7h4m0 0v4m0-4L8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            Open Dashboard
+          </button>
           <button
             type="button"
             className="btn btn--ghost"

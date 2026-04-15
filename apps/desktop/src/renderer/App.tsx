@@ -14,6 +14,7 @@ import { StatusPage } from './pages/Status';
 import { DashboardPage } from './pages/Dashboard';
 import { MarketplacePage } from './pages/Marketplace';
 import { ExtensionsPage } from './pages/Extensions';
+import { AgentStorePage } from './pages/AgentStore';
 import { SettingsPage } from './pages/Settings';
 import { SetupWizardPage } from './pages/SetupWizard';
 import { CostDashboardPage } from './pages/CostDashboard';
@@ -27,6 +28,7 @@ type Page =
   | 'status'
   | 'dashboard'
   | 'marketplace'
+  | 'agents'
   | 'extensions'
   | 'settings'
   | 'setup'
@@ -116,6 +118,19 @@ export function App() {
     return () => {
       window.clearInterval(interval);
     };
+  }, [isAuthenticated]);
+
+  // Subscribe to auto-profile-refresh (syncs balance after user tops up on izziapi.com)
+  useEffect(() => {
+    if (!isAuthenticated || !window.electronAPI?.auth?.onProfileRefreshed) {
+      return undefined;
+    }
+    const unsubscribe = window.electronAPI.auth.onProfileRefreshed((user: any) => {
+      if (user) {
+        setCurrentUser(user);
+      }
+    });
+    return unsubscribe;
   }, [isAuthenticated]);
 
   async function checkAuth() {
@@ -257,6 +272,8 @@ export function App() {
         );
       case 'marketplace':
         return <MarketplacePage />;
+      case 'agents':
+        return <AgentStorePage />;
       case 'extensions':
         return (
           <ExtensionsPage

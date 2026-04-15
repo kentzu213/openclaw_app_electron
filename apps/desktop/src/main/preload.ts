@@ -34,6 +34,11 @@ const electronAPI = {
     isAuthenticated: () => ipcRenderer.invoke('auth:isAuthenticated'),
     getApiKey: () => ipcRenderer.invoke('auth:getApiKey'),
     refreshProfile: () => ipcRenderer.invoke('auth:refreshProfile'),
+    onProfileRefreshed: (listener: (user: any) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => listener(data);
+      ipcRenderer.on('auth:profileRefreshed', handler);
+      return () => { ipcRenderer.removeListener('auth:profileRefreshed', handler); };
+    },
   },
 
   sync: {
@@ -189,6 +194,31 @@ const electronAPI = {
       ipcRenderer.invoke('smartRouter:route', taskType, inputText, isVietnamese),
     getPreferences: () => ipcRenderer.invoke('smartRouter:getPreferences'),
     setPreferences: (prefs: any) => ipcRenderer.invoke('smartRouter:setPreferences', prefs),
+  },
+
+  agents: {
+    list: (): Promise<any[]> => ipcRenderer.invoke('agents:list'),
+    install: (params: { bundleId: string; secrets: Record<string, string>; config: Record<string, any> }): Promise<any> =>
+      ipcRenderer.invoke('agents:install', params),
+    uninstall: (agentId: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('agents:uninstall', agentId),
+    start: (agentId: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('agents:start', agentId),
+    stop: (agentId: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('agents:stop', agentId),
+    getStatus: (agentId: string): Promise<any> =>
+      ipcRenderer.invoke('agents:getStatus', agentId),
+    configure: (agentId: string, config: Record<string, any>): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('agents:configure', agentId, config),
+    sendMessage: (agentId: string, message: string): Promise<any> =>
+      ipcRenderer.invoke('agents:sendMessage', agentId, message),
+    onEvent: (listener: (event: any) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: any) => listener(data);
+      ipcRenderer.on('agents:event', handler);
+      return () => {
+        ipcRenderer.removeListener('agents:event', handler);
+      };
+    },
   },
 
   platform: {

@@ -10,4 +10,5 @@ Thumbs.db
 *.ocx
 coverage/
 .vitest/
+release/
 .gitnexus

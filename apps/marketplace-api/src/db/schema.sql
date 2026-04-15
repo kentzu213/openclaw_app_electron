@@ -86,6 +86,77 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- ============================================================
+-- Agent Marketplace Tables
+-- ============================================================
+
+-- Agent Bundle catalog
+CREATE TABLE IF NOT EXISTS marketplace_agents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  version TEXT NOT NULL DEFAULT '1.0.0',
+  developer_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  developer_name TEXT DEFAULT 'Izzi Team',
+  category TEXT DEFAULT 'other',
+  icon TEXT DEFAULT '🤖',
+  bundle_type TEXT DEFAULT 'agent',
+
+  -- Agent-specific metadata
+  skills_count INT DEFAULT 0,
+  automation_count INT DEFAULT 0,
+  platforms TEXT[] DEFAULT '{}',
+  screenshots TEXT[] DEFAULT '{}',
+  demo_video TEXT,
+
+  -- Pricing
+  pricing_model TEXT DEFAULT 'free' CHECK (pricing_model IN ('free', 'paid', 'freemium')),
+  price_monthly DECIMAL(10,2),
+  price_yearly DECIMAL(10,2),
+  trial_days INT DEFAULT 0,
+
+  -- Stats
+  install_count INT DEFAULT 0,
+  rating_avg DECIMAL(3,2) DEFAULT 0,
+  rating_count INT DEFAULT 0,
+
+  -- Review status
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'suspended')),
+  review_notes TEXT,
+
+  -- Bundle storage
+  manifest JSONB DEFAULT '{}',
+  bundle_url TEXT,
+  bundle_checksum TEXT,
+  bundle_size_bytes BIGINT DEFAULT 0,
+
+  -- Timestamps
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Agent install tracking
+CREATE TABLE IF NOT EXISTS marketplace_agent_installs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  agent_id UUID REFERENCES marketplace_agents(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  installed_at TIMESTAMPTZ DEFAULT NOW(),
+  uninstalled_at TIMESTAMPTZ,
+
+  UNIQUE(agent_id, user_id)
+);
+
+-- RPC function for incrementing agent install count
+CREATE OR REPLACE FUNCTION increment_agent_install_count(agent_id UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE marketplace_agents
+  SET install_count = install_count + 1
+  WHERE id = agent_id;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_ext_category ON marketplace_extensions(category);
 CREATE INDEX IF NOT EXISTS idx_ext_status ON marketplace_extensions(status);
@@ -94,6 +165,14 @@ CREATE INDEX IF NOT EXISTS idx_ext_name ON marketplace_extensions(name);
 CREATE INDEX IF NOT EXISTS idx_reviews_extension ON marketplace_reviews(extension_id);
 CREATE INDEX IF NOT EXISTS idx_installs_extension ON marketplace_installs(extension_id);
 CREATE INDEX IF NOT EXISTS idx_installs_user ON marketplace_installs(user_id);
+
+-- Agent indexes
+CREATE INDEX IF NOT EXISTS idx_agent_category ON marketplace_agents(category);
+CREATE INDEX IF NOT EXISTS idx_agent_status ON marketplace_agents(status);
+CREATE INDEX IF NOT EXISTS idx_agent_developer ON marketplace_agents(developer_id);
+CREATE INDEX IF NOT EXISTS idx_agent_name ON marketplace_agents(name);
+CREATE INDEX IF NOT EXISTS idx_agent_installs_agent ON marketplace_agent_installs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_installs_user ON marketplace_agent_installs(user_id);
 
 -- Row Level Security (RLS)
 ALTER TABLE marketplace_extensions ENABLE ROW LEVEL SECURITY;
@@ -124,3 +203,19 @@ CREATE POLICY "Users can see own installs" ON marketplace_installs
 -- Users can manage own developer profile
 CREATE POLICY "Users can manage own developer profile" ON marketplace_developers
   FOR ALL USING (auth.uid() = user_id);
+
+-- ── Agent Marketplace RLS ──
+ALTER TABLE marketplace_agents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE marketplace_agent_installs ENABLE ROW LEVEL SECURITY;
+
+-- Public read access for approved agents
+CREATE POLICY "Anyone can view approved agents" ON marketplace_agents
+  FOR SELECT USING (status = 'approved');
+
+-- Developers can manage their own agents
+CREATE POLICY "Developers can manage own agents" ON marketplace_agents
+  FOR ALL USING (auth.uid() = developer_id);
+
+-- Users can see own agent installs
+CREATE POLICY "Users can see own agent installs" ON marketplace_agent_installs
+  FOR SELECT USING (auth.uid() = user_id);

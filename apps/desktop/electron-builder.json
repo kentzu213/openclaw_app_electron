@@ -30,7 +30,7 @@
     "icon": "build/icon.ico",
     "publisherName": "Starizzi Technologies",
     "requestedExecutionLevel": "asInvoker",
-    "signAndEditExecutable": true
+    "signAndEditExecutable": false
   },
 
   "nsis": {
@@ -119,5 +119,5 @@
     "mirror": "https://npmmirror.com/mirrors/electron/"
   },
 
-  "afterSign": "scripts/notarize.js"
+  "afterSign": null
 }

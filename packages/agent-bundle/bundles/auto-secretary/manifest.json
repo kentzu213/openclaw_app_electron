@@ -1,0 +1,58 @@
+{
+  "name": "auto-secretary",
+  "displayName": "Auto Secretary Agent",
+  "version": "1.0.0",
+  "description": "Thư ký AI nhắc lịch, quản lý task, tóm tắt cuộc họp, dự thảo email, lập kế hoạch ngày/tuần cho bạn.",
+  "author": { "name": "Izzi Team", "email": "dev@izziapi.com", "url": "https://izziapi.com" },
+  "icon": "📋",
+  "category": "productivity",
+  "tags": ["productivity", "calendar", "tasks", "assistant", "email"],
+  "license": "proprietary",
+  "pricing": { "model": "freemium", "monthlyPrice": 9.99, "yearlyPrice": 99, "currency": "USD" },
+  "engine": { "runtime": "hermes", "minVersion": "0.1.0", "pythonVersion": ">=3.10" },
+  "persona": { "soulFile": "SOUL.md", "defaultLanguage": "vi", "personality": "efficient-assistant" },
+  "skills": [
+    { "id": "secretary-calendar", "name": "Calendar Manager", "description": "Quản lý lịch, tạo sự kiện, nhắc nhở cuộc họp.", "entrypoint": "skills/calendar_manager.py", "triggers": ["cron", "manual"] },
+    { "id": "secretary-reminder", "name": "Smart Reminder", "description": "Nhắc nhở thông minh dựa trên context và priority.", "entrypoint": "skills/smart_reminder.py", "triggers": ["cron"] },
+    { "id": "secretary-meeting-summary", "name": "Meeting Summarizer", "description": "Tóm tắt nội dung cuộc họp từ notes/transcript.", "entrypoint": "skills/meeting_summary.py", "triggers": ["manual"] },
+    { "id": "secretary-task-manager", "name": "Task Manager", "description": "Quản lý TODO list, phân loại độ ưu tiên.", "entrypoint": "skills/task_manager.py", "triggers": ["manual", "cron"] },
+    { "id": "secretary-email-draft", "name": "Email Drafter", "description": "Dự thảo email chuyên nghiệp theo context.", "entrypoint": "skills/email_drafter.py", "triggers": ["manual"] },
+    { "id": "secretary-daily-brief", "name": "Daily Briefing", "description": "Tóm tắt ngày: lịch, task, email quan trọng.", "entrypoint": "skills/daily_brief.py", "triggers": ["cron"] },
+    { "id": "secretary-document-organizer", "name": "Document Organizer", "description": "Phân loại và tổ chức tài liệu.", "entrypoint": "skills/document_organizer.py", "triggers": ["manual"] },
+    { "id": "secretary-travel-planner", "name": "Travel Planner", "description": "Lên kế hoạch di chuyển, đặt phòng khách sạn.", "entrypoint": "skills/travel_planner.py", "triggers": ["manual"] }
+  ],
+  "automation": {
+    "cronJobs": [
+      { "id": "morning-brief", "schedule": "0 7 * * 1-5", "skill": "secretary-daily-brief", "description": "Briefing buổi sáng (T2-T6)" },
+      { "id": "meeting-reminder-15m", "schedule": "*/5 * * * *", "skill": "secretary-reminder", "description": "Kiểm tra lịch mỗi 5 phút, nhắc trước 15 phút" },
+      { "id": "evening-task-review", "schedule": "0 18 * * 1-5", "skill": "secretary-task-manager", "description": "Review task cuối ngày" },
+      { "id": "weekly-plan", "schedule": "0 8 * * 1", "skill": "secretary-calendar", "description": "Lập kế hoạch tuần (Thứ 2)" },
+      { "id": "end-of-day-summary", "schedule": "0 21 * * *", "skill": "secretary-daily-brief", "description": "Tóm tắt ngày trước khi ngủ" }
+    ]
+  },
+  "connections": [
+    { "platform": "telegram", "type": "bot", "required": true, "secrets": [
+      { "key": "TELEGRAM_BOT_TOKEN", "label": "Telegram Bot Token", "required": true }
+    ]},
+    { "platform": "email", "type": "smtp", "required": false, "secrets": [
+      { "key": "SMTP_HOST", "label": "SMTP Server", "required": false },
+      { "key": "SMTP_USER", "label": "Email", "required": false },
+      { "key": "SMTP_PASS", "label": "App Password", "required": false }
+    ]}
+  ],
+  "setupWizard": {
+    "steps": [
+      { "id": "welcome", "title": "Chào mừng đến Auto Secretary", "type": "info" },
+      { "id": "telegram", "title": "Kết nối Telegram", "type": "oauth", "platform": "telegram" },
+      { "id": "preferences", "title": "Cấu hình thói quen", "type": "config",
+        "fields": [
+          { "key": "work_start", "label": "Giờ bắt đầu làm việc", "type": "time", "default": "08:00" },
+          { "key": "work_end", "label": "Giờ kết thúc", "type": "time", "default": "18:00" },
+          { "key": "timezone", "label": "Múi giờ", "type": "select", "options": ["Asia/Ho_Chi_Minh", "Asia/Bangkok", "UTC"], "default": "Asia/Ho_Chi_Minh" }
+        ]
+      },
+      { "id": "confirm", "title": "Xác nhận", "type": "confirm" }
+    ]
+  },
+  "resources": { "memory": "256MB", "disk": "100MB", "network": true }
+}

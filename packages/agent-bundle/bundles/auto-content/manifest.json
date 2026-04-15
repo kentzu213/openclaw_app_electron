@@ -1,0 +1,48 @@
+{
+  "name": "auto-content",
+  "displayName": "Auto Content Agent",
+  "version": "1.0.0",
+  "description": "Viết nội dung marketing đa nền tảng: SEO blog, social media posts, email campaigns, kịch bản video. Tối ưu SEO và A/B testing tự động.",
+  "author": { "name": "Izzi Team", "email": "dev@izziapi.com", "url": "https://izziapi.com" },
+  "icon": "✍️",
+  "category": "content",
+  "tags": ["content", "seo", "blog", "marketing", "writing", "copywriting"],
+  "license": "proprietary",
+  "pricing": { "model": "subscription", "monthlyPrice": 14.99, "yearlyPrice": 149, "currency": "USD", "trialDays": 7 },
+  "engine": { "runtime": "hermes", "minVersion": "0.1.0", "pythonVersion": ">=3.10" },
+  "persona": { "soulFile": "SOUL.md", "defaultLanguage": "vi", "personality": "creative-writer" },
+  "skills": [
+    { "id": "content-blog-writer", "name": "Blog Writer", "description": "Viết blog SEO-optimized từ outline hoặc keyword.", "entrypoint": "skills/blog_writer.py", "triggers": ["manual"] },
+    { "id": "content-social-creator", "name": "Social Media Creator", "description": "Tạo content cho Facebook, Instagram, TikTok, LinkedIn.", "entrypoint": "skills/social_creator.py", "triggers": ["manual", "cron"] },
+    { "id": "content-email-campaign", "name": "Email Campaign Writer", "description": "Viết email marketing sequence: welcome, nurture, promo.", "entrypoint": "skills/email_campaign.py", "triggers": ["manual"] },
+    { "id": "content-video-script", "name": "Video Script Writer", "description": "Viết kịch bản video ngắn (TikTok, Reels, YouTube Shorts).", "entrypoint": "skills/video_script.py", "triggers": ["manual"] },
+    { "id": "content-seo-optimizer", "name": "SEO Content Optimizer", "description": "Phân tích và tối ưu SEO cho bài viết.", "entrypoint": "skills/seo_optimizer.py", "triggers": ["manual"] },
+    { "id": "content-repurpose", "name": "Content Repurposer", "description": "Chuyển đổi content giữa các format (blog→social, video→blog).", "entrypoint": "skills/repurpose.py", "triggers": ["manual"] },
+    { "id": "content-a-b-tester", "name": "A/B Content Tester", "description": "Tạo biến thể content để A/B test.", "entrypoint": "skills/ab_tester.py", "triggers": ["manual"] },
+    { "id": "content-trend-hunter", "name": "Trend Hunter", "description": "Tìm trending topics và gợi ý content ideas.", "entrypoint": "skills/trend_hunter.py", "triggers": ["cron"] }
+  ],
+  "automation": {
+    "cronJobs": [
+      { "id": "trend-scan", "schedule": "0 8 * * *", "skill": "content-trend-hunter", "description": "Scan xu hướng mới mỗi sáng" },
+      { "id": "weekly-content-plan", "schedule": "0 9 * * 1", "skill": "content-social-creator", "description": "Lên kế hoạch content tuần (Thứ 2)" }
+    ]
+  },
+  "connections": [
+    { "platform": "webhook", "type": "api", "required": false, "secrets": [] }
+  ],
+  "setupWizard": {
+    "steps": [
+      { "id": "welcome", "title": "Chào mừng đến Auto Content", "type": "info" },
+      { "id": "brand", "title": "Cấu hình thương hiệu", "type": "config",
+        "fields": [
+          { "key": "brand_name", "label": "Tên thương hiệu", "type": "text" },
+          { "key": "industry", "label": "Ngành nghề", "type": "select", "options": ["Tech", "F&B", "Fashion", "Education", "Healthcare", "Finance", "Khác"], "default": "Tech" },
+          { "key": "target_audience", "label": "Đối tượng mục tiêu", "type": "text", "default": "18-35 tuổi, quan tâm công nghệ" },
+          { "key": "writing_style", "label": "Phong cách viết", "type": "select", "options": ["Chuyên nghiệp", "Thân thiện", "Sáng tạo", "Học thuật", "Hài hước"], "default": "Thân thiện" }
+        ]
+      },
+      { "id": "confirm", "title": "Xác nhận", "type": "confirm" }
+    ]
+  },
+  "resources": { "memory": "256MB", "disk": "150MB", "network": true }
+}

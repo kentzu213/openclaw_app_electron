@@ -32,7 +32,8 @@ const WORKSPACE_ITEMS = [
 ];
 
 const EXPLORE_ITEMS = [
-  { id: 'marketplace', icon: MarketplaceIcon, label: 'Marketplace', badge: 'New' },
+  { id: 'agents', icon: () => <span style={{ fontSize: 16 }}>🤖</span>, label: 'Agents', badge: 'New' },
+  { id: 'marketplace', icon: MarketplaceIcon, label: 'Marketplace' },
   { id: 'extensions', icon: ExtensionIcon, label: 'Extensions' },
 ];
 

@@ -128,6 +128,93 @@ const SAMPLE_EXTENSIONS = [
   },
 ];
 
+const SAMPLE_AGENTS = [
+  {
+    name: "auto-facebook",
+    display_name: "Auto Facebook Agent",
+    description: "Tự động đăng bài, trả lời comment, lên lịch content, phân tích audience trên Facebook. 8 skills + 3 cron jobs.",
+    version: "1.0.0",
+    category: "social-media",
+    icon: "🤖",
+    developer_name: "Izzi Team",
+    pricing_model: "paid",
+    price_monthly: 19.99,
+    price_yearly: 199,
+    trial_days: 7,
+    install_count: 12500,
+    rating_avg: 4.8,
+    rating_count: 234,
+    status: "approved",
+    bundle_type: "agent",
+    skills_count: 8,
+    automation_count: 3,
+    platforms: ["facebook", "messenger"],
+  },
+  {
+    name: "auto-saler",
+    display_name: "Auto Saler Agent",
+    description: "Chatbot bán hàng thông minh, follow-up khách hàng, báo cáo doanh thu. 8 skills + 4 cron jobs đa kênh.",
+    version: "1.0.0",
+    category: "sales",
+    icon: "💰",
+    developer_name: "Izzi Team",
+    pricing_model: "paid",
+    price_monthly: 29.99,
+    price_yearly: 299,
+    trial_days: 7,
+    install_count: 25000,
+    rating_avg: 4.9,
+    rating_count: 456,
+    status: "approved",
+    bundle_type: "agent",
+    skills_count: 8,
+    automation_count: 4,
+    platforms: ["facebook", "telegram", "zalo", "messenger"],
+  },
+  {
+    name: "auto-secretary",
+    display_name: "Auto Secretary Agent",
+    description: "Thư ký AI: nhắc lịch, quản lý task, tóm tắt cuộc họp, daily briefing. 8 skills + 5 cron jobs.",
+    version: "1.0.0",
+    category: "productivity",
+    icon: "📋",
+    developer_name: "Izzi Team",
+    pricing_model: "freemium",
+    price_monthly: 9.99,
+    price_yearly: 99,
+    trial_days: 0,
+    install_count: 8900,
+    rating_avg: 4.7,
+    rating_count: 178,
+    status: "approved",
+    bundle_type: "agent",
+    skills_count: 8,
+    automation_count: 5,
+    platforms: ["telegram", "email"],
+  },
+  {
+    name: "auto-content",
+    display_name: "Auto Content Agent",
+    description: "Content creator AI: viết blog SEO, social media, email marketing, kịch bản video. 8 skills + 2 cron jobs.",
+    version: "1.0.0",
+    category: "content",
+    icon: "✍️",
+    developer_name: "Izzi Team",
+    pricing_model: "paid",
+    price_monthly: 14.99,
+    price_yearly: 149,
+    trial_days: 7,
+    install_count: 6700,
+    rating_avg: 4.6,
+    rating_count: 123,
+    status: "approved",
+    bundle_type: "agent",
+    skills_count: 8,
+    automation_count: 2,
+    platforms: ["webhook"],
+  },
+];
+
 async function seed() {
   console.log("🌱 Seeding marketplace extensions...\n");
 
@@ -146,6 +233,25 @@ async function seed() {
   }
 
   console.log(`\n✨ Seeded ${SAMPLE_EXTENSIONS.length} extensions`);
+
+  console.log("\n🤖 Seeding agent bundles...\n");
+
+  for (const agent of SAMPLE_AGENTS) {
+    const { data, error } = await supabase
+      .from("marketplace_agents")
+      .upsert(agent, { onConflict: "name" })
+      .select()
+      .single();
+
+    if (error) {
+      console.error(`  ❌ ${agent.display_name}: ${error.message}`);
+    } else {
+      console.log(`  ✅ ${agent.display_name} v${agent.version} (${agent.pricing_model}) — ${agent.skills_count} skills`);
+    }
+  }
+
+  console.log(`\n✨ Seeded ${SAMPLE_AGENTS.length} agent bundles`);
+  console.log(`\n🎉 Total: ${SAMPLE_EXTENSIONS.length} extensions + ${SAMPLE_AGENTS.length} agents`);
 }
 
 seed().catch(console.error);

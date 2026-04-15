@@ -1,0 +1,210 @@
+{
+  "name": "auto-facebook",
+  "displayName": "Auto Facebook Agent",
+  "version": "1.0.0",
+  "description": "Tự động đăng bài, trả lời comment, phân tích audience, lên lịch content cho Facebook Page. Agent đóng gói sẵn, chỉ cần kết nối Page Token là hoạt động.",
+  "author": {
+    "name": "Izzi Team",
+    "email": "dev@izziapi.com",
+    "url": "https://izziapi.com"
+  },
+  "icon": "📘",
+  "category": "social-media",
+  "tags": ["facebook", "social-media", "marketing", "automation", "content"],
+  "license": "proprietary",
+  "pricing": {
+    "model": "subscription",
+    "monthlyPrice": 19.99,
+    "yearlyPrice": 199,
+    "currency": "USD",
+    "trialDays": 7
+  },
+  "engine": {
+    "runtime": "hermes",
+    "minVersion": "0.1.0",
+    "pythonVersion": ">=3.10"
+  },
+  "persona": {
+    "soulFile": "SOUL.md",
+    "defaultLanguage": "vi",
+    "personality": "professional-friendly"
+  },
+  "skills": [
+    {
+      "id": "fb-auto-poster",
+      "name": "Auto Poster",
+      "description": "Tự động đăng bài theo lịch. Hỗ trợ text, ảnh, video, link.",
+      "entrypoint": "skills/auto_poster.py",
+      "triggers": ["cron", "manual"]
+    },
+    {
+      "id": "fb-comment-responder",
+      "name": "Comment Responder",
+      "description": "Tự động trả lời comment dựa trên context và tone of voice.",
+      "entrypoint": "skills/comment_responder.py",
+      "triggers": ["webhook", "manual"]
+    },
+    {
+      "id": "fb-audience-analyzer",
+      "name": "Audience Analyzer",
+      "description": "Phân tích demographics, engagement rate, best posting time.",
+      "entrypoint": "skills/audience_analyzer.py",
+      "triggers": ["cron", "manual"]
+    },
+    {
+      "id": "fb-content-calendar",
+      "name": "Content Calendar",
+      "description": "Lên lịch content tự động theo tuần/tháng.",
+      "entrypoint": "skills/content_calendar.py",
+      "triggers": ["cron", "manual"]
+    },
+    {
+      "id": "fb-report-generator",
+      "name": "Report Generator",
+      "description": "Báo cáo hiệu suất Page hàng ngày/tuần.",
+      "entrypoint": "skills/report_generator.py",
+      "triggers": ["cron"]
+    },
+    {
+      "id": "fb-competitor-tracker",
+      "name": "Competitor Tracker",
+      "description": "Theo dõi hoạt động Page đối thủ.",
+      "entrypoint": "skills/competitor_tracker.py",
+      "triggers": ["cron"]
+    },
+    {
+      "id": "fb-hashtag-generator",
+      "name": "Hashtag Generator",
+      "description": "Gợi ý hashtag tối ưu cho mỗi bài đăng.",
+      "entrypoint": "skills/hashtag_generator.py",
+      "triggers": ["manual"]
+    },
+    {
+      "id": "fb-ad-optimizer",
+      "name": "Ad Optimizer",
+      "description": "Phân tích và đề xuất tối ưu quảng cáo Facebook Ads.",
+      "entrypoint": "skills/ad_optimizer.py",
+      "triggers": ["manual", "cron"]
+    }
+  ],
+  "automation": {
+    "cronJobs": [
+      {
+        "id": "daily-post",
+        "schedule": "0 9 * * *",
+        "skill": "fb-auto-poster",
+        "description": "Đăng bài tự động lúc 9h sáng"
+      },
+      {
+        "id": "engagement-check",
+        "schedule": "*/30 * * * *",
+        "skill": "fb-comment-responder",
+        "description": "Kiểm tra và trả lời comment mới mỗi 30 phút"
+      },
+      {
+        "id": "daily-report",
+        "schedule": "0 22 * * *",
+        "skill": "fb-report-generator",
+        "description": "Báo cáo hiệu suất cuối ngày"
+      }
+    ],
+    "workflows": [
+      {
+        "id": "new-post-workflow",
+        "name": "New Post Pipeline",
+        "description": "Tạo nội dung → check SEO → thêm hashtag → đăng bài",
+        "steps": ["fb-content-calendar", "fb-hashtag-generator", "fb-auto-poster"]
+      }
+    ]
+  },
+  "connections": [
+    {
+      "platform": "facebook",
+      "type": "api",
+      "required": true,
+      "secrets": [
+        {
+          "key": "FACEBOOK_PAGE_TOKEN",
+          "label": "Facebook Page Access Token",
+          "description": "Token có quyền pages_manage_posts, pages_read_engagement",
+          "required": true
+        },
+        {
+          "key": "FACEBOOK_PAGE_ID",
+          "label": "Facebook Page ID",
+          "description": "ID của Facebook Page cần quản lý",
+          "required": true
+        }
+      ],
+      "scopes": ["pages_manage_posts", "pages_read_engagement", "pages_read_user_content"]
+    },
+    {
+      "platform": "messenger",
+      "type": "api",
+      "required": false,
+      "secrets": [
+        {
+          "key": "MESSENGER_TOKEN",
+          "label": "Messenger Page Token",
+          "description": "Token cho tính năng trả lời tin nhắn tự động (tùy chọn)",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "setupWizard": {
+    "steps": [
+      {
+        "id": "welcome",
+        "title": "Chào mừng bạn đến với Auto Facebook",
+        "type": "info",
+        "content": "Agent này sẽ giúp bạn tự động hóa toàn bộ hoạt động trên Facebook Page."
+      },
+      {
+        "id": "facebook-connect",
+        "title": "Kết nối Facebook Page",
+        "type": "oauth",
+        "platform": "facebook",
+        "instructions": "Đăng nhập Facebook và cấp quyền cho ứng dụng quản lý Page của bạn."
+      },
+      {
+        "id": "schedule-config",
+        "title": "Cấu hình lịch đăng bài",
+        "type": "config",
+        "fields": [
+          {
+            "key": "post_frequency",
+            "label": "Tần suất đăng bài",
+            "type": "select",
+            "options": ["1 bài/ngày", "2 bài/ngày", "3 bài/ngày", "Tùy chỉnh"],
+            "default": "1 bài/ngày"
+          },
+          {
+            "key": "post_time",
+            "label": "Giờ đăng bài",
+            "type": "time",
+            "default": "09:00"
+          },
+          {
+            "key": "tone_of_voice",
+            "label": "Giọng điệu",
+            "type": "select",
+            "options": ["Chuyên nghiệp", "Thân thiện", "Hài hước", "Nghiêm túc"],
+            "default": "Thân thiện"
+          }
+        ]
+      },
+      {
+        "id": "confirm",
+        "title": "Xác nhận cài đặt",
+        "type": "confirm",
+        "content": "Agent sẽ bắt đầu hoạt động ngay sau khi xác nhận."
+      }
+    ]
+  },
+  "resources": {
+    "memory": "256MB",
+    "disk": "100MB",
+    "network": true
+  }
+}

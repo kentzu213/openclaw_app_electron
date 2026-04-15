@@ -15,6 +15,7 @@ import { OnboardingService } from './onboarding/onboarding-service';
 import type { AgentTaskStatus, IntegrationProvider } from './agent/types';
 import { UpdaterService } from './updater/updater-service';
 import { SetupWizardService } from './setup/setup-wizard-service';
+import { registerAgentIpcHandlers, shutdownAgents } from './agents';
 
 let mainWindow: BrowserWindow | null = null;
 let authManager: AuthManager;
@@ -73,6 +74,9 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  // Register Agent Bundle IPC handlers (Agent Marketplace)
+  registerAgentIpcHandlers(mainWindow);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -539,6 +543,21 @@ app.whenReady().then(async () => {
     }
   });
 
+  // Auto-refresh user profile when window regains focus
+  // (syncs balance/plan after user tops up on izziapi.com)
+  app.on('browser-window-focus', async () => {
+    try {
+      if (authManager && await authManager.isAuthenticated()) {
+        const refreshed = await authManager.refreshProfile();
+        if (refreshed && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('auth:profileRefreshed', refreshed);
+        }
+      }
+    } catch {
+      // Silent fail — profile refresh is best-effort
+    }
+  });
+
   // Handle protocol URL on macOS
   app.on('open-url', (_event, url) => {
     handleOAuthCallback(url);
@@ -562,6 +581,8 @@ app.on('before-quit', async () => {
   if (extensionLoader) {
     await extensionLoader.shutdownAll();
   }
+  // Shutdown all running agent runtimes
+  await shutdownAgents();
   if (dbManager) {
     dbManager.close();
   }

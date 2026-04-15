@@ -109,6 +109,18 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/agent-bundle:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.15
+        version: 22.19.15
+      rimraf:
+        specifier: ^5.0.0
+        version: 5.0.10
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
   packages/cli:
     dependencies:
       archiver:

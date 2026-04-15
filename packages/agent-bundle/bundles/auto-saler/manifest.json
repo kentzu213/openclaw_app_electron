@@ -1,0 +1,181 @@
+{
+  "name": "auto-saler",
+  "displayName": "Auto Saler Agent",
+  "version": "1.0.0",
+  "description": "Chatbot bán hàng thông minh, follow-up khách hàng, phân loại lead, báo cáo doanh thu tự động. Kết nối đa kênh: Facebook, Telegram, Zalo, Messenger.",
+  "author": {
+    "name": "Izzi Team",
+    "email": "dev@izziapi.com",
+    "url": "https://izziapi.com"
+  },
+  "icon": "💰",
+  "category": "sales",
+  "tags": ["sales", "chatbot", "crm", "automation", "lead-generation"],
+  "license": "proprietary",
+  "pricing": {
+    "model": "subscription",
+    "monthlyPrice": 29.99,
+    "yearlyPrice": 299,
+    "currency": "USD",
+    "trialDays": 7
+  },
+  "engine": {
+    "runtime": "hermes",
+    "minVersion": "0.1.0",
+    "pythonVersion": ">=3.10"
+  },
+  "persona": {
+    "soulFile": "SOUL.md",
+    "defaultLanguage": "vi",
+    "personality": "sales-expert"
+  },
+  "skills": [
+    {
+      "id": "sales-chatbot",
+      "name": "Sales Chatbot",
+      "description": "Chatbot tư vấn bán hàng, trả lời FAQ, giới thiệu sản phẩm.",
+      "entrypoint": "skills/sales_chatbot.py",
+      "triggers": ["webhook", "manual"]
+    },
+    {
+      "id": "sales-lead-qualifier",
+      "name": "Lead Qualifier",
+      "description": "Tự động phân loại lead: hot/warm/cold dựa trên hành vi.",
+      "entrypoint": "skills/lead_qualifier.py",
+      "triggers": ["webhook", "cron"]
+    },
+    {
+      "id": "sales-follow-up",
+      "name": "Follow-Up Automation",
+      "description": "Tự động nhắn follow-up theo sequence đã thiết lập.",
+      "entrypoint": "skills/follow_up.py",
+      "triggers": ["cron"]
+    },
+    {
+      "id": "sales-proposal-writer",
+      "name": "Proposal Writer",
+      "description": "Tạo báo giá, proposal tự động dựa trên yêu cầu khách.",
+      "entrypoint": "skills/proposal_writer.py",
+      "triggers": ["manual"]
+    },
+    {
+      "id": "sales-crm-sync",
+      "name": "CRM Sync",
+      "description": "Đồng bộ thông tin khách hàng với CRM.",
+      "entrypoint": "skills/crm_sync.py",
+      "triggers": ["cron", "webhook"]
+    },
+    {
+      "id": "sales-report-daily",
+      "name": "Daily Sales Report",
+      "description": "Báo cáo doanh số, conversion rate, pipeline hàng ngày.",
+      "entrypoint": "skills/daily_report.py",
+      "triggers": ["cron"]
+    },
+    {
+      "id": "sales-objection-handler",
+      "name": "Objection Handler",
+      "description": "Xử lý từ chối khách hàng với chiến thuật bán hàng thông minh.",
+      "entrypoint": "skills/objection_handler.py",
+      "triggers": ["webhook"]
+    },
+    {
+      "id": "sales-upsell-recommender",
+      "name": "Upsell Recommender",
+      "description": "Gợi ý sản phẩm upsell/cross-sell dựa trên lịch sử mua.",
+      "entrypoint": "skills/upsell_recommender.py",
+      "triggers": ["webhook", "manual"]
+    }
+  ],
+  "automation": {
+    "cronJobs": [
+      {
+        "id": "follow-up-check",
+        "schedule": "0 8,14,19 * * *",
+        "skill": "sales-follow-up",
+        "description": "Kiểm tra và gửi follow-up 3 lần/ngày"
+      },
+      {
+        "id": "lead-scoring",
+        "schedule": "0 */2 * * *",
+        "skill": "sales-lead-qualifier",
+        "description": "Cập nhật điểm lead mỗi 2 giờ"
+      },
+      {
+        "id": "daily-sales-report",
+        "schedule": "0 21 * * *",
+        "skill": "sales-report-daily",
+        "description": "Báo cáo doanh số cuối ngày"
+      },
+      {
+        "id": "crm-sync",
+        "schedule": "*/15 * * * *",
+        "skill": "sales-crm-sync",
+        "description": "Đồng bộ CRM mỗi 15 phút"
+      }
+    ],
+    "workflows": [
+      {
+        "id": "new-lead-pipeline",
+        "name": "New Lead Pipeline",
+        "description": "Tiếp nhận → Phân loại → Tư vấn → Follow-up",
+        "steps": ["sales-chatbot", "sales-lead-qualifier", "sales-follow-up"]
+      },
+      {
+        "id": "closing-workflow",
+        "name": "Closing Workflow",
+        "description": "Xử lý từ chối → Upsell → Báo giá",
+        "steps": ["sales-objection-handler", "sales-upsell-recommender", "sales-proposal-writer"]
+      }
+    ]
+  },
+  "connections": [
+    {
+      "platform": "facebook",
+      "type": "api",
+      "required": true,
+      "secrets": [
+        { "key": "FACEBOOK_PAGE_TOKEN", "label": "Facebook Page Token", "required": true }
+      ]
+    },
+    {
+      "platform": "telegram",
+      "type": "bot",
+      "required": false,
+      "secrets": [
+        { "key": "TELEGRAM_BOT_TOKEN", "label": "Telegram Bot Token", "required": false }
+      ]
+    },
+    {
+      "platform": "zalo",
+      "type": "api",
+      "required": false,
+      "secrets": [
+        { "key": "ZALO_OA_TOKEN", "label": "Zalo OA Access Token", "required": false }
+      ]
+    },
+    {
+      "platform": "messenger",
+      "type": "api",
+      "required": false,
+      "secrets": [
+        { "key": "MESSENGER_TOKEN", "label": "Messenger Page Token", "required": false }
+      ]
+    }
+  ],
+  "setupWizard": {
+    "steps": [
+      { "id": "welcome", "title": "Chào mừng đến Auto Saler", "type": "info" },
+      { "id": "products", "title": "Cấu hình sản phẩm/dịch vụ", "type": "config",
+        "fields": [
+          { "key": "business_type", "label": "Loại hình kinh doanh", "type": "select",
+            "options": ["Bán lẻ", "Dịch vụ", "B2B", "SaaS", "Khác"], "default": "Bán lẻ" },
+          { "key": "product_catalog_url", "label": "Link catalog sản phẩm (tùy chọn)", "type": "text" }
+        ]
+      },
+      { "id": "channels", "title": "Kết nối kênh bán hàng", "type": "oauth", "platform": "facebook" },
+      { "id": "confirm", "title": "Xác nhận", "type": "confirm" }
+    ]
+  },
+  "resources": { "memory": "512MB", "disk": "200MB", "network": true }
+}

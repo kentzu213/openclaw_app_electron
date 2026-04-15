@@ -1,6 +1,6 @@
 {
   "name": "@openclaw/desktop",
-  "version": "0.2.4",
+  "version": "0.3.1",
   "private": true,
   "description": "Izzi OpenClaw Desktop App - Electron",
   "author": "kentzu213",

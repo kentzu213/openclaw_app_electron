@@ -12,6 +12,7 @@ import { extensionRoutes } from "./routes/extensions.js";
 import { reviewRoutes } from "./routes/reviews.js";
 import { developerRoutes } from "./routes/developers.js";
 import { uploadRoutes } from "./routes/uploads.js";
+import { agentRoutes } from "./routes/agents.js";
 
 const app = new Hono();
 
@@ -43,13 +44,19 @@ app.get("/", (c) => c.json({
     "PUT  /api/extensions/:id",
     "POST /api/extensions/:id/install",
     "GET  /api/extensions/categories",
-    "POST /api/extensions/:id/upload    ← NEW",
-    "GET  /api/extensions/:id/download  ← NEW",
-    "GET  /api/extensions/:id/versions  ← NEW",
+    "POST /api/extensions/:id/upload",
+    "GET  /api/extensions/:id/download",
+    "GET  /api/extensions/:id/versions",
     "GET  /api/extensions/:id/reviews",
     "POST /api/extensions/:id/reviews",
     "POST /api/developers/register",
     "GET  /api/developers/me",
+    "GET  /api/agents",
+    "GET  /api/agents/:id",
+    "GET  /api/agents/categories",
+    "GET  /api/agents/featured",
+    "POST /api/agents",
+    "POST /api/agents/:id/install",
   ],
 }));
 
@@ -60,6 +67,7 @@ app.route("/api/extensions", extensionRoutes);
 app.route("/api/extensions", uploadRoutes);     // Upload: /:id/upload, /:id/download, /:id/versions
 app.route("/api/extensions", reviewRoutes);     // Nested under /api/extensions/:id/reviews
 app.route("/api/developers", developerRoutes);
+app.route("/api/agents", agentRoutes);          // Agent Marketplace routes
 
 // --- 404 ---
 app.notFound((c) => c.json({
@@ -75,8 +83,10 @@ app.onError((err, c) => {
 // --- Start server ---
 const port = Number(process.env.PORT) || 8788;
 console.log(`\n🛒 Starizzi Marketplace API v0.1 running on http://localhost:${port}`);
-console.log(`   GET  /api/extensions         (Browse marketplace)`);
+console.log(`   GET  /api/extensions         (Browse extensions)`);
 console.log(`   POST /api/extensions          (Publish extension)`);
+console.log(`   GET  /api/agents              (Browse agent bundles)`);
+console.log(`   GET  /api/agents/featured     (Featured agents)`);
 console.log(`   POST /api/developers/register (Become a developer)`);
 console.log(`   GET  /api/developers/me       (Developer dashboard)\n`);
 
