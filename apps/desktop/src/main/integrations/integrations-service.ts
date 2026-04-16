@@ -1,20 +1,15 @@
+import axios from 'axios';
 import { shell } from 'electron';
 import { AuthManager } from '../auth/auth-manager';
 import { DatabaseManager } from '../db/database';
 import type { IntegrationConnection, IntegrationProvider } from '../agent/types';
 
-/**
- * IntegrationsService — Local-first integration management.
- * 
- * Integrations (Telegram, Discord, Zalo) are managed locally via the database.
- * No backend /api/integrations endpoint exists on izziapi.com.
- * 
- * Connect URLs point to the izziapi.com dashboard where users can
- * set up their integrations via the web UI.
- */
+const API_BASE_URL =
+  process.env.OPENCLAW_API_URL ||
+  'https://api.izziapi.com';
 
-const INTEGRATIONS_KEY = 'integrations_state';
-const IZZI_DASHBOARD = 'https://izziapi.com/dashboard';
+const DEFAULT_INTEGRATIONS_URL = `${API_BASE_URL}/api/integrations`;
+const MOCK_INTEGRATIONS_KEY = 'mock_integrations_state';
 
 function normalizeProvider(provider: unknown): IntegrationProvider | null {
   const value = String(provider ?? '').toLowerCase();
@@ -80,6 +75,22 @@ function normalizeList(payload: unknown): IntegrationConnection[] {
   return normalized.sort((left, right) => left.provider.localeCompare(right.provider));
 }
 
+function resolveConnectUrl(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const data = payload as Record<string, unknown>;
+  if (typeof data.url === 'string') return data.url;
+  if (typeof data.connectUrl === 'string') return data.connectUrl;
+  if (typeof data.connect_url === 'string') return data.connect_url;
+  return null;
+}
+
+function isMockEnabled(): boolean {
+  return process.env.OPENCLAW_MOCK_INTEGRATIONS === '1' || process.env.OPENCLAW_MOCK_INTEGRATIONS === 'true';
+}
+
 function defaultConnections(): IntegrationConnection[] {
   return (['telegram', 'discord', 'zalo'] satisfies IntegrationProvider[]).map((provider) => ({
     provider,
@@ -90,81 +101,120 @@ function defaultConnections(): IntegrationConnection[] {
 export class IntegrationsService {
   private auth: AuthManager;
   private db: DatabaseManager;
+  private baseUrl: string;
+  private mockMode: boolean;
 
-  constructor(auth: AuthManager, db: DatabaseManager) {
+  constructor(auth: AuthManager, db: DatabaseManager, baseUrl = DEFAULT_INTEGRATIONS_URL) {
     this.auth = auth;
     this.db = db;
+    this.baseUrl = baseUrl;
+    this.mockMode = isMockEnabled();
   }
 
-  /**
-   * List all integrations from local database.
-   * No backend API call needed — state is stored locally.
-   */
+  private async getAuthHeaders() {
+    const accessToken = await this.auth.getAccessToken();
+    if (!accessToken) {
+      throw new Error('Missing IzziAPI access token');
+    }
+
+    return {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    };
+  }
+
   async list(): Promise<IntegrationConnection[]> {
-    return this.readConnections();
+    if (this.mockMode) {
+      return this.readMockConnections();
+    }
+
+    const response = await axios.get(this.baseUrl, {
+      headers: await this.getAuthHeaders(),
+      validateStatus: () => true,
+      timeout: 15000,
+    });
+
+    if (response.status >= 400) {
+      throw new Error(`Integrations endpoint returned HTTP ${response.status}`);
+    }
+
+    return normalizeList(response.data);
   }
 
-  /**
-   * Begin connecting an integration provider.
-   * Opens izziapi.com dashboard for the user to configure.
-   * Updates local state to 'pending'.
-   */
   async beginConnect(provider: IntegrationProvider): Promise<{ provider: IntegrationProvider; url: string }> {
-    const url = `${IZZI_DASHBOARD}/integrations/${provider}`;
+    if (this.mockMode) {
+      const url = `https://izziapi.com/integrations/${provider}`;
+      const next = this.readMockConnections().map((integration) =>
+        integration.provider === provider
+          ? {
+              ...integration,
+              status: 'connected' as const,
+              accountLabel: `${provider} workspace`,
+              connectedAt: new Date().toISOString(),
+              lastError: undefined,
+            }
+          : integration,
+      );
+      this.writeMockConnections(next);
+      await shell.openExternal(url);
+      return { provider, url };
+    }
 
-    // Update local state to pending
-    const connections = this.readConnections().map((integration) =>
-      integration.provider === provider
-        ? {
-            ...integration,
-            status: 'pending' as const,
-          }
-        : integration,
-    );
-    this.writeConnections(connections);
+    const response = await axios.get(`${this.baseUrl}/${provider}/connect-url`, {
+      headers: await this.getAuthHeaders(),
+      validateStatus: () => true,
+      timeout: 15000,
+    });
+
+    if (response.status >= 400) {
+      throw new Error(`Connect URL endpoint returned HTTP ${response.status}`);
+    }
+
+    const url = resolveConnectUrl(response.data);
+    if (!url) {
+      throw new Error(`Connect URL missing for ${provider}`);
+    }
 
     await shell.openExternal(url);
     return { provider, url };
   }
 
-  /**
-   * Mark a provider as connected (called after successful setup).
-   */
-  async markConnected(provider: IntegrationProvider, accountLabel?: string): Promise<IntegrationConnection[]> {
-    const connections = this.readConnections().map((integration) =>
-      integration.provider === provider
-        ? {
-            ...integration,
-            status: 'connected' as const,
-            accountLabel: accountLabel || `${provider} workspace`,
-            connectedAt: new Date().toISOString(),
-            lastError: undefined,
-          }
-        : integration,
-    );
-    this.writeConnections(connections);
-    return connections;
-  }
-
-  /**
-   * Disconnect an integration provider.
-   * Updates local state — no backend call needed.
-   */
   async disconnect(provider: IntegrationProvider): Promise<IntegrationConnection[]> {
-    const connections = this.readConnections().map((integration) =>
-      integration.provider === provider
-        ? {
-            provider,
-            status: 'disconnected' as const,
-          }
-        : integration,
+    if (this.mockMode) {
+      const next = this.readMockConnections().map((integration) =>
+        integration.provider === provider
+          ? {
+              provider,
+              status: 'disconnected' as const,
+            }
+          : integration,
+      );
+      this.writeMockConnections(next);
+      return next;
+    }
+
+    const response = await axios.post(
+      `${this.baseUrl}/${provider}/disconnect`,
+      {},
+      {
+        headers: {
+          ...(await this.getAuthHeaders()),
+          'Content-Type': 'application/json',
+        },
+        validateStatus: () => true,
+        timeout: 15000,
+      },
     );
-    this.writeConnections(connections);
-    return connections;
+
+    if (response.status >= 400) {
+      throw new Error(`Disconnect endpoint returned HTTP ${response.status}`);
+    }
+
+    return this.list();
   }
 
-  private readConnections(): IntegrationConnection[] {
-    const raw = this.db.getSetting(INTEGRATIONS_KEY);
+  private readMockConnections(): IntegrationConnection[] {
+    const raw = this.db.getSetting(MOCK_INTEGRATIONS_KEY);
     if (!raw) {
       return defaultConnections();
     }
@@ -176,7 +226,7 @@ export class IntegrationsService {
     }
   }
 
-  private writeConnections(connections: IntegrationConnection[]): void {
-    this.db.setSetting(INTEGRATIONS_KEY, JSON.stringify(connections));
+  private writeMockConnections(connections: IntegrationConnection[]): void {
+    this.db.setSetting(MOCK_INTEGRATIONS_KEY, JSON.stringify(connections));
   }
 }

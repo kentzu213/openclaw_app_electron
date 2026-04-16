@@ -105,48 +105,22 @@ class StorizziApiClient {
     });
   }
 
-  // ── IzziAPI Data (via IPC) ──
-  // Note: izziapi.com does NOT have /api/* REST endpoints.
-  // Profile/keys/usage/billing are provided via:
-  //   - Supabase auth (user identity) → electronAPI.auth.getUser()
-  //   - Local ~/.openclaw/openclaw.json (API key, config) → electronAPI.auth.getApiKey()
-  //   - SyncEngine caches data from /v1/models, /v1/key-info → electronAPI.sync.status()
-  // In Electron mode, use window.electronAPI IPC calls.
+  // ── IzziAPI Backend (port 8787) ──
 
   async getProfile() {
-    // In Electron mode, profile comes from IPC (backed by Supabase auth)
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth?.getUser) {
-      return (window as any).electronAPI.auth.getUser();
-    }
-    // Fallback: return null (no standalone /api/auth/me endpoint)
-    return null;
+    return this.fetch(IZZI_API, '/api/auth/me');
   }
 
   async getApiKeys() {
-    // API key is read from local OpenClaw config by the main process
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth?.getApiKey) {
-      const apiKey = await (window as any).electronAPI.auth.getApiKey();
-      return { keys: apiKey ? [{ key: apiKey, status: 'active' }] : [] };
-    }
-    return { keys: [] };
+    return this.fetch(IZZI_API, '/api/keys');
   }
 
   async getUsage() {
-    // Usage data synced via SyncEngine — trigger sync to refresh
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.sync?.status) {
-      const status = await (window as any).electronAPI.sync.status();
-      return { syncStatus: status, models: [] };
-    }
-    return { models: [] };
+    return this.fetch(IZZI_API, '/api/usage');
   }
 
   async getBilling() {
-    // Billing info from local config (manage billing at izziapi.com/dashboard)
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth?.getUser) {
-      const user = await (window as any).electronAPI.auth.getUser();
-      return { plan: user?.plan || 'free' };
-    }
-    return { plan: 'free' };
+    return this.fetch(IZZI_API, '/api/billing');
   }
 
   // ── Health check ──

@@ -2,17 +2,13 @@
  * AuthManager — Supabase Auth Integration
  * Tích hợp cùng hệ thống auth với izziapi.com
  * - Supabase signInWithPassword / signInWithOAuth
- * - User profile from Supabase auth.getUser()
- * - Local OpenClaw config (~/.openclaw/openclaw.json) for API key/plan
+ * - Bearer JWT → izzi-backend /api/auth/me
  * - Token storage via electron safeStorage
  */
 
 import { createClient, SupabaseClient, Session } from '@supabase/supabase-js';
 import { safeStorage, shell, BrowserWindow } from 'electron';
 import { DatabaseManager } from '../db/database';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 
 // IzziAPI.com Backend URL
 const IZZI_API_BASE = process.env.OPENCLAW_API_URL || 'https://api.izziapi.com';
@@ -67,12 +63,9 @@ export class AuthManager {
         auth: {
           autoRefreshToken: true,
           persistSession: false, // We handle persistence ourselves via safeStorage
-          flowType: 'implicit',  // MUST use implicit flow for Electron desktop
-          // PKCE flow fails because code_verifier is generated in Node.js
-          // but OAuth happens in a BrowserWindow with a different context
         },
       });
-      console.log('[Auth] Supabase client initialized (implicit flow)');
+      console.log('[Auth] Supabase client initialized');
     } else {
       console.warn('[Auth] Supabase credentials not configured — running in demo mode');
     }
@@ -141,69 +134,31 @@ export class AuthManager {
   }
 
   /**
-   * Fetch user profile from Supabase auth + local OpenClaw config.
-   * Previously called /api/auth/me which doesn't exist on izziapi.com.
-   * Now uses Supabase getUser() for identity and reads ~/.openclaw/openclaw.json
-   * for API key and plan info (set by izzi-openclaw installer).
+   * Fetch user profile from izzi-backend /api/auth/me
+   * Same as izzi-web-v2/src/context/AuthContext.tsx fetchProfile()
    */
   private async fetchProfile(accessToken: string): Promise<User | null> {
     try {
-      if (!this.supabase) return null;
-
-      // Get user identity from Supabase
-      const { data: { user: supaUser }, error } = await this.supabase.auth.getUser(accessToken);
-      if (error || !supaUser) {
-        console.warn('[Auth] Supabase getUser failed:', error?.message);
-        return null;
-      }
-
-      // Read local OpenClaw config for API key/plan info
-      const localConfig = this.readLocalOpenClawConfig();
-
+      const res = await fetch(`${IZZI_API_BASE}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as any;
       return {
-        id: supaUser.id,
-        email: supaUser.email || '',
-        name: supaUser.user_metadata?.full_name || supaUser.user_metadata?.name || supaUser.email?.split('@')[0] || '',
-        avatar: (supaUser.user_metadata?.full_name || supaUser.email || 'U')[0].toUpperCase(),
-        apiKey: localConfig?.apiKey,
-        plan: localConfig?.plan ?? 'free',
-        balance: 0,
-        role: 'user',
-        activeKeys: localConfig?.apiKey ? 1 : 0,
-        createdAt: supaUser.created_at || new Date().toISOString(),
+        id: data.id,
+        email: data.email,
+        name: data.name || data.email?.split('@')[0] || '',
+        avatar: (data.name || data.email || 'U')[0].toUpperCase(),
+        plan: data.plan ?? 'free',
+        balance: data.balance ?? 0,
+        role: data.role ?? 'user',
+        activeKeys: data.activeKeys ?? 0,
+        createdAt: data.createdAt || new Date().toISOString(),
       };
     } catch (err) {
       console.error('[Auth] Failed to fetch profile:', err);
       return null;
     }
-  }
-
-  /**
-   * Read local ~/.openclaw/openclaw.json config (set by izzi-openclaw installer).
-   * Returns API key, baseUrl, and models info.
-   */
-  private readLocalOpenClawConfig(): { apiKey?: string; baseUrl?: string; plan?: string; models?: string[] } | null {
-    try {
-      const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
-      if (!fs.existsSync(configPath)) return null;
-      const raw = fs.readFileSync(configPath, 'utf-8');
-      const config = JSON.parse(raw);
-      return {
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        plan: config.apiKey ? 'pro' : 'free',
-        models: config.models || [],
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Expose Supabase client for direct queries (used by SyncEngine).
-   */
-  getSupabaseClient(): SupabaseClient | null {
-    return this.supabase;
   }
 
   /**
@@ -299,8 +254,8 @@ export class AuthManager {
   }
 
   /**
-   * Login with Google OAuth via Supabase (Implicit Flow)
-   * Opens a BrowserWindow popup for the OAuth flow
+   * Login with Google OAuth via Supabase
+   * Opens system browser for OAuth flow
    */
   async loginWithGoogle(): Promise<{ success: boolean; user?: User; error?: string }> {
     if (!this.supabase) {
@@ -308,11 +263,8 @@ export class AuthManager {
     }
 
     try {
-      // For implicit flow in Electron:
-      // - redirect to a localhost URL that the BrowserWindow can intercept
-      // - Supabase will append tokens as hash fragment: #access_token=...&refresh_token=...
-      // - The BrowserWindow's will-navigate/did-navigate events capture these before the page loads
-      const redirectUrl = 'http://localhost/auth/callback';
+      // Use Supabase's own callback URL (no custom protocol needed)
+      const redirectUrl = `${SUPABASE_URL}/auth/v1/callback`;
 
       const { data, error } = await this.supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -330,7 +282,6 @@ export class AuthManager {
         return { success: false, error: 'No OAuth URL returned' };
       }
 
-      console.log('[Auth] Opening Google OAuth popup (implicit flow)');
       // Open OAuth in a BrowserWindow popup (much more reliable than custom protocol)
       return await this.openOAuthPopup(data.url);
     } catch (err: any) {
@@ -390,8 +341,7 @@ export class AuthManager {
   }
 
   /**
-   * Try to extract OAuth tokens from a URL (hash fragment — implicit flow)
-   * With flowType: 'implicit', Supabase returns tokens directly in the URL hash
+   * Try to extract OAuth tokens from a URL (hash fragment or query params)
    */
   private async tryExtractOAuthTokens(
     url: string,
@@ -400,23 +350,15 @@ export class AuthManager {
     try {
       const parsed = new URL(url);
 
-      // Implicit flow: Supabase puts tokens in hash fragment: #access_token=...&refresh_token=...
+      // Supabase puts tokens in the hash fragment: #access_token=...&refresh_token=...
       let accessToken: string | null = null;
       let refreshToken: string | null = null;
 
-      // Check hash fragment (standard for implicit flow)
+      // Check hash fragment first (most common for Supabase OAuth)
       if (parsed.hash && parsed.hash.length > 1) {
         const hashParams = new URLSearchParams(parsed.hash.substring(1));
         accessToken = hashParams.get('access_token');
         refreshToken = hashParams.get('refresh_token');
-
-        // Check for error in hash (e.g., #error=access_denied)
-        const hashError = hashParams.get('error_description') || hashParams.get('error');
-        if (hashError) {
-          console.error('[Auth] OAuth error in hash:', hashError);
-          finish({ success: false, error: hashError });
-          return;
-        }
       }
 
       // Fallback: check query params
@@ -425,12 +367,40 @@ export class AuthManager {
         refreshToken = parsed.searchParams.get('refresh_token');
       }
 
+      // Also check for authorization code flow
+      const code = parsed.searchParams.get('code');
+
       if (accessToken && refreshToken) {
-        console.log('[Auth] Got OAuth tokens from URL (implicit flow)');
+        console.log('[Auth] Got OAuth tokens from URL');
         const result = await this.setSessionFromTokens(accessToken, refreshToken);
         finish(result);
+      } else if (code && this.supabase) {
+        // Exchange authorization code for session
+        console.log('[Auth] Got OAuth code, exchanging for session');
+        const { data, error } = await this.supabase.auth.exchangeCodeForSession(code);
+        if (error || !data.session) {
+          finish({ success: false, error: error?.message || 'Failed to exchange code' });
+        } else {
+          const profile = await this.fetchProfile(data.session.access_token);
+          const user: User = profile || {
+            id: data.user?.id || '',
+            email: data.user?.email || '',
+            name: data.user?.user_metadata?.full_name || data.user?.user_metadata?.name || data.user?.email?.split('@')[0] || '',
+            plan: 'free',
+          };
+
+          this.saveSession({
+            accessToken: data.session.access_token,
+            refreshToken: data.session.refresh_token,
+            expiresAt: (data.session.expires_at || 0) * 1000,
+            user,
+          });
+
+          this.db.appendDiagnosticEvent({ type: 'auth.login', status: 'success', detail: `Google OAuth: ${user.email}` });
+          finish({ success: true, user });
+        }
       }
-      // If no tokens found, let navigation continue (user is still in OAuth flow)
+      // If no tokens/code found, let navigation continue (user is still in OAuth flow)
     } catch {
       // URL parse errors are expected for non-callback URLs — ignore them
     }
@@ -477,7 +447,6 @@ export class AuthManager {
 
   /**
    * Handle OAuth callback (legacy — kept for custom protocol handler compatibility)
-   * With implicit flow, only hash fragment tokens are expected
    */
   async handleOAuthCallback(url: string): Promise<{ success: boolean; user?: User; error?: string }> {
     if (!this.supabase) {
@@ -487,7 +456,7 @@ export class AuthManager {
     try {
       const parsed = new URL(url);
 
-      // Check hash fragment first (implicit flow)
+      // Check hash fragment first
       let accessToken: string | null = null;
       let refreshToken: string | null = null;
 
@@ -507,7 +476,17 @@ export class AuthManager {
         return await this.setSessionFromTokens(accessToken, refreshToken);
       }
 
-      return { success: false, error: 'Không tìm thấy thông tin đăng nhập trong URL' };
+      // Try code exchange
+      const code = parsed.searchParams.get('code');
+      if (code) {
+        const { data, error } = await this.supabase.auth.exchangeCodeForSession(code);
+        if (error || !data.session) {
+          return { success: false, error: error?.message || 'Failed to exchange code' };
+        }
+        return await this.setSessionFromTokens(data.session.access_token, data.session.refresh_token);
+      }
+
+      return { success: false, error: 'No tokens or code in callback URL' };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
