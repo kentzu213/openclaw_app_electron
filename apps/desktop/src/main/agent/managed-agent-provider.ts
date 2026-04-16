@@ -5,14 +5,17 @@ import type {
   ManagedAgentStreamRequest,
   ManagedProviderStreamChunk,
 } from './types';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 const API_BASE_URL =
   process.env.STARIZZI_API_URL ||
   process.env.OPENCLAW_API_URL ||
   'https://api.izziapi.com';
 
-const DEFAULT_CHAT_URL = `${API_BASE_URL}/api/agent/chat`;
-const DEFAULT_STATUS_URL = `${API_BASE_URL}/api/agent/status`;
+// Use OpenAI-compatible /v1/chat/completions (this endpoint EXISTS on izziapi.com)
+const DEFAULT_CHAT_URL = `${API_BASE_URL}/v1/chat/completions`;
 const MOCK_AGENT_MODE =
   process.env.STARIZZI_MOCK_AGENT_MODE === 'true' ||
   process.env.STARIZZI_MOCK_AGENT_MODE === '1';
@@ -52,35 +55,62 @@ function normalizeStatusPayload(payload: unknown): ManagedAgentStatus | null {
   };
 }
 
-function buildRequestPayload(request: ManagedAgentStreamRequest) {
-  return {
-    sessionId: request.sessionId,
-    message: request.message,
-    history: request.history.map((message) => ({
-      role: message.role,
-      content: message.content,
+/**
+ * Read local ~/.openclaw/openclaw.json for API key
+ * The izzi-openclaw installer sets the API key here
+ */
+function getLocalApiKey(): string | null {
+  try {
+    const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    if (!fs.existsSync(configPath)) return null;
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(raw);
+    return config.apiKey || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build OpenAI-compatible /v1/chat/completions payload.
+ * 
+ * izziapi.com exposes OpenAI-compatible endpoints:
+ * - /v1/chat/completions (streaming SSE)
+ * - /v1/models
+ * 
+ * The payload follows OpenAI format: { model, messages, stream }
+ * Auth uses x-api-key header (izzi API key from OpenClaw config)
+ */
+function buildOpenAIPayload(request: ManagedAgentStreamRequest) {
+  const messages = [
+    ...request.history.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
     })),
-    provider: 'izziapi-managed',
+    {
+      role: 'user' as const,
+      content: request.message,
+    },
+  ];
+
+  return {
+    model: 'auto', // izzi Smart Router selects best model
+    messages,
     stream: true,
-    client: 'starizzi-desktop',
-    user: request.user,
   };
 }
 
 export class ManagedAgentProvider {
   private chatUrl: string;
-  private statusUrl: string;
   private getAccessToken: () => Promise<string | null>;
   private mockMode: boolean;
 
   constructor(options: {
     getAccessToken: () => Promise<string | null>;
     chatUrl?: string;
-    statusUrl?: string;
   }) {
     this.getAccessToken = options.getAccessToken;
     this.chatUrl = options.chatUrl || process.env.STARIZZI_AGENT_CHAT_URL || DEFAULT_CHAT_URL;
-    this.statusUrl = options.statusUrl || process.env.STARIZZI_AGENT_STATUS_URL || DEFAULT_STATUS_URL;
     this.mockMode = MOCK_AGENT_MODE;
   }
 
@@ -128,35 +158,102 @@ export class ManagedAgentProvider {
       return;
     }
 
+    // Get API key — prefer local OpenClaw config (set by installer),
+    // fallback to Supabase access token
+    const localApiKey = getLocalApiKey();
     const accessToken = await this.getAccessToken();
-    if (!accessToken) {
-      throw new Error('Missing IzziAPI access token');
+
+    if (!localApiKey && !accessToken) {
+      throw new Error('Missing IzziAPI access token or API key. Run the izzi-openclaw installer first.');
+    }
+
+    // Build auth headers
+    // izziapi.com uses x-api-key for API key auth (from installer)
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    };
+
+    if (localApiKey) {
+      headers['x-api-key'] = localApiKey;
+    } else if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
     const response = await axios.request<NodeJS.ReadableStream>({
       method: 'POST',
       url: this.chatUrl,
-      data: buildRequestPayload(request),
+      data: buildOpenAIPayload(request),
       responseType: 'stream',
       validateStatus: () => true,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'text/event-stream, application/x-ndjson, application/json',
-        'Content-Type': 'application/json',
-      },
+      headers,
       timeout: 120000,
     });
 
     if (response.status >= 400) {
       const body = await readStreamBody(response.data);
-      throw new Error(body || `Agent endpoint returned HTTP ${response.status}`);
+      throw new Error(body || `Chat completions endpoint returned HTTP ${response.status}`);
     }
 
     const contentType = String(response.headers['content-type'] ?? '');
-    yield* parseManagedAgentStream(response.data, contentType);
+
+    // Handle OpenAI SSE format: data: {"choices":[{"delta":{"content":"..."}}]}
+    if (contentType.includes('text/event-stream') || contentType.includes('text/plain')) {
+      yield { type: 'status', state: 'running' };
+      yield { type: 'assistant_start' };
+
+      let buffer = '';
+      for await (const rawChunk of response.data) {
+        buffer += Buffer.isBuffer(rawChunk) ? rawChunk.toString('utf8') : String(rawChunk);
+
+        // Process complete SSE lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete last line in buffer
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith(':')) continue; // Skip comments and empty lines
+
+          if (trimmed === 'data: [DONE]') {
+            yield { type: 'assistant_done' };
+            return;
+          }
+
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const jsonStr = trimmed.slice(6);
+              const parsed = JSON.parse(jsonStr);
+              const delta = parsed.choices?.[0]?.delta?.content;
+              if (delta) {
+                yield { type: 'assistant_delta', delta };
+              }
+
+              // Check for finish_reason
+              const finishReason = parsed.choices?.[0]?.finish_reason;
+              if (finishReason === 'stop') {
+                yield { type: 'assistant_done' };
+                return;
+              }
+            } catch {
+              // Ignore malformed SSE chunks
+            }
+          }
+        }
+      }
+
+      // Process remaining buffer
+      if (buffer.trim() === 'data: [DONE]') {
+        yield { type: 'assistant_done' };
+      } else {
+        yield { type: 'assistant_done' };
+      }
+    } else {
+      // Fallback: try the original stream parser for non-SSE responses
+      yield* parseManagedAgentStream(response.data, contentType);
+    }
   }
 
-  async getStatus(sessionId?: string): Promise<ManagedAgentStatus | null> {
+  async getStatus(_sessionId?: string): Promise<ManagedAgentStatus | null> {
     if (this.mockMode) {
       return {
         state: 'idle',
@@ -164,29 +261,11 @@ export class ManagedAgentProvider {
       };
     }
 
-    const accessToken = await this.getAccessToken();
-    if (!accessToken) {
-      return null;
-    }
-
-    const response = await axios.get(this.statusUrl, {
-      params: sessionId ? { sessionId } : undefined,
-      validateStatus: () => true,
-      timeout: 15000,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
-    });
-
-    if (response.status === 404) {
-      return null;
-    }
-
-    if (response.status >= 400) {
-      throw new Error(`Status endpoint returned HTTP ${response.status}`);
-    }
-
-    return normalizeStatusPayload(response.data);
+    // Status is managed locally — no /api/agent/status endpoint exists
+    // Return idle status since we use direct /v1/chat/completions streaming
+    return {
+      state: 'idle',
+      updatedAt: new Date().toISOString(),
+    };
   }
 }

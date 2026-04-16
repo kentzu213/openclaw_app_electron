@@ -105,22 +105,45 @@ class StorizziApiClient {
     });
   }
 
-  // ── IzziAPI Backend (port 8787) ──
+  // ── IzziAPI Data (via IPC or cached data) ──
+  // Note: izziapi.com does NOT have /api/* REST endpoints.
+  // Profile/keys/usage/billing are provided via:
+  //   - Supabase auth (user identity)
+  //   - Local ~/.openclaw/openclaw.json (API key, config)
+  //   - /v1/models and /v1/key-info (actual endpoints)
+  // In Electron mode, use window.electronAPI IPC calls instead.
 
   async getProfile() {
-    return this.fetch(IZZI_API, '/api/auth/me');
+    // In Electron mode, profile comes from IPC (backed by Supabase auth)
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.getUser) {
+      return (window as any).electronAPI.getUser();
+    }
+    // Fallback: return null (no standalone /api/auth/me endpoint)
+    return null;
   }
 
   async getApiKeys() {
-    return this.fetch(IZZI_API, '/api/keys');
+    // API keys are read from local OpenClaw config by the main process
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.getCachedData) {
+      return (window as any).electronAPI.getCachedData('api_keys');
+    }
+    return { keys: [] };
   }
 
   async getUsage() {
-    return this.fetch(IZZI_API, '/api/usage');
+    // Usage/models data synced via SyncEngine from /v1/models
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.getCachedData) {
+      return (window as any).electronAPI.getCachedData('usage');
+    }
+    return { models: [] };
   }
 
   async getBilling() {
-    return this.fetch(IZZI_API, '/api/billing');
+    // Billing info from local config (manage billing at izziapi.com/dashboard)
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.getCachedData) {
+      return (window as any).electronAPI.getCachedData('billing');
+    }
+    return { plan: 'free' };
   }
 
   // ── Health check ──

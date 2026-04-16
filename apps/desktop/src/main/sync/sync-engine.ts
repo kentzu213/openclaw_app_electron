@@ -1,5 +1,8 @@
 import { AuthManager } from '../auth/auth-manager';
 import { DatabaseManager } from '../db/database';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 export type SyncStatus = 'idle' | 'syncing' | 'error' | 'success';
 
@@ -10,7 +13,7 @@ interface SyncState {
   progress: number;
 }
 
-// IzziAPI.com backend URL
+// IzziAPI.com backend URL — used for /v1/models and /v1/key-info
 const IZZI_API_BASE = process.env.OPENCLAW_API_URL || 'https://api.izziapi.com';
 
 export class SyncEngine {
@@ -40,6 +43,25 @@ export class SyncEngine {
     }, 5 * 60 * 1000);
   }
 
+  /**
+   * Read local ~/.openclaw/openclaw.json config.
+   * This config is set by the izzi-openclaw installer and contains:
+   * - apiKey: the user's izzi API key
+   * - baseUrl: API base URL (https://api.izziapi.com)
+   * - models: available model list
+   * - defaultModel: user's default model
+   */
+  private readLocalConfig(): Record<string, any> | null {
+    try {
+      const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+      if (!fs.existsSync(configPath)) return null;
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
   async startSync(): Promise<SyncState> {
     if (!this.auth.isAuthenticated()) {
       return { ...this.state, status: 'error', error: 'Not authenticated' };
@@ -52,64 +74,86 @@ export class SyncEngine {
     this.state = { status: 'syncing', lastSynced: this.state.lastSynced, error: null, progress: 0 };
 
     try {
-      const token = await this.auth.getAccessToken();
-      if (!token) {
-        throw new Error('No access token available');
-      }
-
-      const headers = {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      };
-
-      // 1. Sync user profile from izzi-backend /api/auth/me
+      // 1. Sync user profile from Supabase auth (NOT /api/auth/me)
       this.state.progress = 20;
       try {
-        const profileRes = await fetch(`${IZZI_API_BASE}/api/auth/me`, { headers });
-        if (profileRes.ok) {
-          const profileData = await profileRes.json() as any;
-          this.db.cacheUserData('profile', 'profile', profileData as object);
-          console.log('[Sync] Profile synced:', profileData.email);
+        const user = this.auth.getCurrentUser();
+        if (user) {
+          this.db.cacheUserData('profile', 'profile', user as unknown as object);
+          console.log('[Sync] Profile synced from auth:', user.email);
         }
       } catch (err: any) {
         console.warn('[Sync] Profile sync failed:', err.message);
       }
 
-      // 2. Sync API keys from izzi-backend /api/keys
+      // 2. Sync API key info from local OpenClaw config + /v1/key-info
       this.state.progress = 40;
       try {
-        const keysRes = await fetch(`${IZZI_API_BASE}/api/keys`, { headers });
-        if (keysRes.ok) {
-          const keysData = await keysRes.json() as any;
-          this.db.cacheUserData('api_keys', 'api_keys', keysData as object);
-          console.log('[Sync] API keys synced');
+        const localConfig = this.readLocalConfig();
+        const apiKey = localConfig?.apiKey;
+        if (apiKey) {
+          // Verify key with izziapi.com /v1/key-info (this endpoint exists)
+          try {
+            const keyInfoRes = await fetch(`${IZZI_API_BASE}/v1/key-info`, {
+              headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+            });
+            if (keyInfoRes.ok) {
+              const keyInfo = await keyInfoRes.json() as any;
+              this.db.cacheUserData('api_keys', 'api_keys', {
+                keys: [{ key: apiKey, name: keyInfo.key_name, plan: keyInfo.plan, status: 'active' }],
+                plan: keyInfo.plan,
+                email: keyInfo.email_masked,
+              });
+              console.log('[Sync] API key info synced:', keyInfo.key_name);
+            }
+          } catch {
+            // /v1/key-info may not be available, cache local key info
+            this.db.cacheUserData('api_keys', 'api_keys', {
+              keys: [{ key: apiKey, name: 'izzi-key', status: 'active' }],
+            });
+            console.log('[Sync] API key cached from local config');
+          }
         }
       } catch (err: any) {
         console.warn('[Sync] API keys sync failed:', err.message);
       }
 
-      // 3. Sync usage data from izzi-backend /api/usage
+      // 3. Sync available models from /v1/models (this endpoint DOES exist)
       this.state.progress = 60;
       try {
-        const usageRes = await fetch(`${IZZI_API_BASE}/api/usage`, { headers });
-        if (usageRes.ok) {
-          const usageData = await usageRes.json() as any;
-          this.db.cacheUserData('usage', 'usage', usageData as object);
-          console.log('[Sync] Usage data synced');
+        const localConfig = this.readLocalConfig();
+        const apiKey = localConfig?.apiKey;
+        if (apiKey) {
+          const modelsRes = await fetch(`${IZZI_API_BASE}/v1/models`, {
+            headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
+          });
+          if (modelsRes.ok) {
+            const modelsData = await modelsRes.json() as any;
+            this.db.cacheUserData('usage', 'usage', {
+              models: modelsData.data || [],
+              modelCount: modelsData.data?.length || 0,
+              syncedAt: new Date().toISOString(),
+            });
+            console.log('[Sync] Models synced:', modelsData.data?.length || 0, 'models');
+          }
         }
       } catch (err: any) {
-        console.warn('[Sync] Usage sync failed:', err.message);
+        console.warn('[Sync] Models sync failed:', err.message);
       }
 
-      // 4. Sync billing from izzi-backend /api/billing
+      // 4. Sync billing/plan info from local config
+      // Note: billing details are managed via izziapi.com/dashboard (web)
       this.state.progress = 80;
       try {
-        const billingRes = await fetch(`${IZZI_API_BASE}/api/billing`, { headers });
-        if (billingRes.ok) {
-          const billingData = await billingRes.json() as any;
-          this.db.cacheUserData('billing', 'billing', billingData as object);
-          console.log('[Sync] Billing data synced');
-        }
+        const localConfig = this.readLocalConfig();
+        this.db.cacheUserData('billing', 'billing', {
+          plan: localConfig?.apiKey ? 'pro' : 'free',
+          apiKey: localConfig?.apiKey ? `${localConfig.apiKey.substring(0, 16)}...` : null,
+          baseUrl: localConfig?.baseUrl || IZZI_API_BASE,
+          defaultModel: localConfig?.defaultModel || 'izzi/auto',
+          syncedAt: new Date().toISOString(),
+        });
+        console.log('[Sync] Billing/plan info synced from local config');
       } catch (err: any) {
         console.warn('[Sync] Billing sync failed:', err.message);
       }
