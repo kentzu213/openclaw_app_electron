@@ -1,13 +1,13 @@
 {
   "name": "@openclaw/desktop",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "private": true,
   "description": "Izzi OpenClaw Desktop App - Electron",
   "author": "kentzu213",
   "homepage": "https://izziapi.com/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kentzu213/openclaw_app_electron.git"
+    "url": "https://github.com/kentzu213/Izzi-Openclaw-Setup.git"
   },
   "main": "dist/main/index.js",
   "scripts": {

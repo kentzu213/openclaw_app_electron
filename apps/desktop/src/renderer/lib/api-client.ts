@@ -105,43 +105,46 @@ class StorizziApiClient {
     });
   }
 
-  // ── IzziAPI Data (via IPC or cached data) ──
+  // ── IzziAPI Data (via IPC) ──
   // Note: izziapi.com does NOT have /api/* REST endpoints.
   // Profile/keys/usage/billing are provided via:
-  //   - Supabase auth (user identity)
-  //   - Local ~/.openclaw/openclaw.json (API key, config)
-  //   - /v1/models and /v1/key-info (actual endpoints)
-  // In Electron mode, use window.electronAPI IPC calls instead.
+  //   - Supabase auth (user identity) → electronAPI.auth.getUser()
+  //   - Local ~/.openclaw/openclaw.json (API key, config) → electronAPI.auth.getApiKey()
+  //   - SyncEngine caches data from /v1/models, /v1/key-info → electronAPI.sync.status()
+  // In Electron mode, use window.electronAPI IPC calls.
 
   async getProfile() {
     // In Electron mode, profile comes from IPC (backed by Supabase auth)
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.getUser) {
-      return (window as any).electronAPI.getUser();
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth?.getUser) {
+      return (window as any).electronAPI.auth.getUser();
     }
     // Fallback: return null (no standalone /api/auth/me endpoint)
     return null;
   }
 
   async getApiKeys() {
-    // API keys are read from local OpenClaw config by the main process
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.getCachedData) {
-      return (window as any).electronAPI.getCachedData('api_keys');
+    // API key is read from local OpenClaw config by the main process
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth?.getApiKey) {
+      const apiKey = await (window as any).electronAPI.auth.getApiKey();
+      return { keys: apiKey ? [{ key: apiKey, status: 'active' }] : [] };
     }
     return { keys: [] };
   }
 
   async getUsage() {
-    // Usage/models data synced via SyncEngine from /v1/models
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.getCachedData) {
-      return (window as any).electronAPI.getCachedData('usage');
+    // Usage data synced via SyncEngine — trigger sync to refresh
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.sync?.status) {
+      const status = await (window as any).electronAPI.sync.status();
+      return { syncStatus: status, models: [] };
     }
     return { models: [] };
   }
 
   async getBilling() {
     // Billing info from local config (manage billing at izziapi.com/dashboard)
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.getCachedData) {
-      return (window as any).electronAPI.getCachedData('billing');
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth?.getUser) {
+      const user = await (window as any).electronAPI.auth.getUser();
+      return { plan: user?.plan || 'free' };
     }
     return { plan: 'free' };
   }
