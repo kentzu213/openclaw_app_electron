@@ -12,3 +12,18 @@ coverage/
 .vitest/
 release/
 .gitnexus
+
+# ── PROPRIETARY BUSINESS LOGIC — DO NOT COMMIT ──
+# SmartRouter algorithm, pricing, budget, cost-gate, 9Router integration
+apps/desktop/src/main/setup/smart-router.ts
+apps/desktop/src/main/setup/model-pricing.ts
+apps/desktop/src/main/setup/budget-manager.ts
+apps/desktop/src/main/setup/cost-gate.ts
+apps/desktop/src/main/setup/nine-router-service.ts
+apps/desktop/src/main/setup/budget-ipc-handlers.ts
+
+# Private setup clone (entire directory is proprietary)
+_izzi_setup/
+
+# Backend source (server-side only)
+backend/src/
