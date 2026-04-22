@@ -9,6 +9,7 @@
  * GET  /featured            — Featured / promoted agents
  */
 import { Hono } from "hono";
+import { sanitizeFilterInput } from "../lib/sanitize";
 import { isDemoMode, supabase } from "../db/client.js";
 import { requireAuth, type DashboardUser } from "../middleware/auth.js";
 
@@ -165,7 +166,8 @@ agentRoutes.get("/", async (c) => {
     .eq("status", "approved");
 
   if (query) {
-    dbQuery = dbQuery.or(`display_name.ilike.%${query}%,description.ilike.%${query}%,name.ilike.%${query}%`);
+    const q = sanitizeFilterInput(query);
+    dbQuery = dbQuery.or(`display_name.ilike.%${q}%,description.ilike.%${q}%,name.ilike.%${q}%`);
   }
   if (category && category !== "all") {
     dbQuery = dbQuery.eq("category", category);
@@ -252,7 +254,7 @@ agentRoutes.get("/:id", async (c) => {
   const { data: agent, error } = await supabase
     .from("marketplace_agents")
     .select("*")
-    .or(`id.eq.${id},name.eq.${id}`)
+    .or(`id.eq.${sanitizeFilterInput(id)},name.eq.${sanitizeFilterInput(id)}`)
     .single();
 
   if (error || !agent) {
@@ -344,7 +346,7 @@ agentRoutes.post("/:id/install", async (c) => {
   const { data: agent } = await supabase
     .from("marketplace_agents")
     .select("id, pricing_model")
-    .or(`id.eq.${id},name.eq.${id}`)
+    .or(`id.eq.${sanitizeFilterInput(id)},name.eq.${sanitizeFilterInput(id)}`)
     .eq("status", "approved")
     .single();
 

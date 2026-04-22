@@ -188,7 +188,7 @@ export class SetupWizardService {
         path: url.pathname,
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
           'Content-Type': 'application/json',
         },
       };

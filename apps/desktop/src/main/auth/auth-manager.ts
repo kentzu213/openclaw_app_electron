@@ -9,14 +9,32 @@
 import { createClient, SupabaseClient, Session } from '@supabase/supabase-js';
 import { safeStorage, shell, BrowserWindow } from 'electron';
 import { DatabaseManager } from '../db/database';
+import { scryptSync, randomBytes, timingSafeEqual } from 'crypto';
+
+// Demo password hashing helpers (Node.js built-in crypto — zero new deps)
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString('hex');
+  const derived = scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${derived}`;
+}
+
+function verifyPassword(password: string, stored: string): boolean {
+  // Support legacy plaintext passwords (pre-hash migration)
+  if (!stored.includes(':') || stored.length < 145) {
+    return password === stored;
+  }
+  const [salt, key] = stored.split(':');
+  const derived = scryptSync(password, salt, 64);
+  return timingSafeEqual(Buffer.from(key, 'hex'), derived);
+}
 
 // IzziAPI.com Backend URL
 const IZZI_API_BASE = process.env.OPENCLAW_API_URL || 'https://api.izziapi.com';
 
-// Supabase config — same project as izziapi.com
-// Anon key is public (RLS-protected) — same approach as izzi-web frontend
-const SUPABASE_URL = process.env.OPENCLAW_SUPABASE_URL || 'https://qdtfaebdgyyujygxnvqi.supabase.co';
-const SUPABASE_ANON_KEY = process.env.OPENCLAW_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkdGZhZWJkZ3l5dWp5Z3hudnFpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1Mjk2NjYsImV4cCI6MjA5MDEwNTY2Nn0.tVQKuDcX3WFSNTPxiZU4aenv4OVsJ9bMouxYPiYkUck';
+// Supabase config — MUST be set via .env (no hardcoded keys in source)
+// Without these, the app falls back to demo mode (intended for unconfigured installs)
+const SUPABASE_URL = process.env.OPENCLAW_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.OPENCLAW_SUPABASE_ANON_KEY || '';
 
 export interface User {
   id: string;
@@ -176,7 +194,7 @@ export class AuthManager {
         return { success: false, error: 'Tài khoản chưa tồn tại. Vui lòng đăng ký trước để sử dụng desktop app.' };
       }
 
-      if (registered.password !== password) {
+      if (!verifyPassword(password, registered.password)) {
         return { success: false, error: 'Sai mật khẩu.' };
       }
 
@@ -508,7 +526,7 @@ export class AuthManager {
       users.push({
         id: `demo-${Date.now()}`,
         email,
-        password,
+        password: hashPassword(password),
         name,
         createdAt: new Date().toISOString(),
       });

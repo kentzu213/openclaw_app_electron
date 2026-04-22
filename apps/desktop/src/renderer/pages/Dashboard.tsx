@@ -134,8 +134,8 @@ export function DashboardPage({
           />
           <QuickAction
             title="Web dashboard"
-            description="Mở dashboard web của IzziAPI trên trình duyệt."
-            onClick={() => window.electronAPI?.shell.openExternal('https://izziapi.com/dashboard/overview')}
+            description="Mở dashboard OpenClaw Gateway trên trình duyệt (local)."
+            onClick={() => window.electronAPI?.shell.openExternal('http://127.0.0.1:18789/')}
           />
           <QuickAction
             title="Docs"

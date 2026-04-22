@@ -8,6 +8,7 @@
  * GET  /categories          — List categories
  */
 import { Hono } from "hono";
+import { sanitizeFilterInput } from "../lib/sanitize";
 import { isDemoMode, supabase } from "../db/client.js";
 import { createDemoExtension, getDemoCategories, getDemoExtension, listDemoExtensions, trackDemoInstall } from "../lib/demo-store.js";
 import { requireAuth, type DashboardUser } from "../middleware/auth.js";
@@ -43,7 +44,8 @@ extensionRoutes.get("/", async (c) => {
 
   // Text search
   if (query) {
-    dbQuery = dbQuery.or(`display_name.ilike.%${query}%,description.ilike.%${query}%,name.ilike.%${query}%`);
+    const q = sanitizeFilterInput(query);
+    dbQuery = dbQuery.or(`display_name.ilike.%${q}%,description.ilike.%${q}%,name.ilike.%${q}%`);
   }
 
   // Category filter

@@ -5,14 +5,22 @@ import type {
   ManagedAgentStreamRequest,
   ManagedProviderStreamChunk,
 } from './types';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
-const API_BASE_URL =
-  process.env.STARIZZI_API_URL ||
-  process.env.OPENCLAW_API_URL ||
-  'https://api.izziapi.com';
+// IzziAPI cloud endpoint — OpenAI-compatible REST API for chat completions
+// Note: The local OpenClaw Gateway (port 18789) is WebSocket-based and does NOT
+// serve HTTP POST /v1/chat/completions. Chat must go through izziapi.com REST API.
+//
+// IMPORTANT: izziapi.com uses `x-api-key` header (NOT `Authorization: Bearer`)
+// IMPORTANT: openclaw.json baseUrl already includes `/v1`, so we must NOT append it again
+// See TROUBLESHOOTING.md Issue #1 for the /v1/v1/chat/completions double-path bug
 
-const DEFAULT_CHAT_URL = `${API_BASE_URL}/api/agent/chat`;
-const DEFAULT_STATUS_URL = `${API_BASE_URL}/api/agent/status`;
+// Default model — verified working against izziapi.com (April 2026)
+// 'auto' requires upstream OpenAI key; 'gemini-2.5-pro' works immediately
+const DEFAULT_MODEL = 'gemini-2.5-pro';
+
 const MOCK_AGENT_MODE =
   process.env.STARIZZI_MOCK_AGENT_MODE === 'true' ||
   process.env.STARIZZI_MOCK_AGENT_MODE === '1';
@@ -52,36 +60,87 @@ function normalizeStatusPayload(payload: unknown): ManagedAgentStatus | null {
   };
 }
 
-function buildRequestPayload(request: ManagedAgentStreamRequest) {
-  return {
-    sessionId: request.sessionId,
-    message: request.message,
-    history: request.history.map((message) => ({
-      role: message.role,
-      content: message.content,
+/**
+ * Read local ~/.openclaw/openclaw.json for IzziAPI credentials and config.
+ * Returns { apiKey, baseUrl, model } from ninerouter provider config.
+ * 
+ * IMPORTANT: baseUrl in openclaw.json already includes `/v1`!
+ * Do NOT append `/v1` again or you get 404 from /v1/v1/chat/completions.
+ * See TROUBLESHOOTING.md Issue #1.
+ */
+function getLocalConfig(): { apiKey: string | null; baseUrl: string | null; model: string | null } {
+  try {
+    const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    if (!fs.existsSync(configPath)) return { apiKey: null, baseUrl: null, model: null };
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(raw);
+
+    const ninerouter = config?.models?.providers?.ninerouter;
+    const apiKey = ninerouter?.apiKey || config?.apiKey || config?.gateway?.auth?.token || null;
+    const baseUrl = ninerouter?.baseUrl || null; // e.g. "https://api.izziapi.com/v1"
+    
+    // Get the primary model from agents config
+    const primaryModel = config?.agents?.defaults?.model?.primary || null;
+
+    return { apiKey, baseUrl, model: primaryModel };
+  } catch {
+    return { apiKey: null, baseUrl: null, model: null };
+  }
+}
+
+/**
+ * Build OpenAI-compatible /v1/chat/completions payload.
+ * 
+ * izziapi.com exposes OpenAI-compatible endpoints:
+ * - /v1/chat/completions (streaming SSE)  
+ * - /v1/models
+ * 
+ * Auth: x-api-key header (NOT Authorization: Bearer)
+ * Model: uses configured model or falls back to DEFAULT_MODEL
+ */
+function buildOpenAIPayload(request: ManagedAgentStreamRequest, model: string) {
+  const messages = [
+    ...request.history.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
     })),
-    provider: 'izziapi-managed',
+    {
+      role: 'user' as const,
+      content: request.message,
+    },
+  ];
+
+  return {
+    model,
+    messages,
     stream: true,
-    client: 'starizzi-desktop',
-    user: request.user,
   };
 }
 
 export class ManagedAgentProvider {
-  private chatUrl: string;
-  private statusUrl: string;
   private getAccessToken: () => Promise<string | null>;
   private mockMode: boolean;
 
   constructor(options: {
     getAccessToken: () => Promise<string | null>;
-    chatUrl?: string;
-    statusUrl?: string;
   }) {
     this.getAccessToken = options.getAccessToken;
-    this.chatUrl = options.chatUrl || process.env.STARIZZI_AGENT_CHAT_URL || DEFAULT_CHAT_URL;
-    this.statusUrl = options.statusUrl || process.env.STARIZZI_AGENT_STATUS_URL || DEFAULT_STATUS_URL;
     this.mockMode = MOCK_AGENT_MODE;
+  }
+
+  /**
+   * Resolve chat URL from openclaw.json config.
+   * baseUrl already includes /v1 (e.g. "https://api.izziapi.com/v1")
+   * so we only append /chat/completions.
+   */
+  private getChatUrl(): string {
+    const config = getLocalConfig();
+    if (config.baseUrl) {
+      // baseUrl = "https://api.izziapi.com/v1" → append /chat/completions
+      return `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+    }
+    // Fallback: hardcoded URL
+    return 'https://api.izziapi.com/v1/chat/completions';
   }
 
   async *streamChat(
@@ -128,35 +187,113 @@ export class ManagedAgentProvider {
       return;
     }
 
+    // Get API key and config from local OpenClaw config (set by installer)
+    const config = getLocalConfig();
+    const localApiKey = config.apiKey;
     const accessToken = await this.getAccessToken();
-    if (!accessToken) {
-      throw new Error('Missing IzziAPI access token');
+
+    if (!localApiKey && !accessToken) {
+      throw new Error('Missing IzziAPI API key. Run the izzi-openclaw installer first.');
     }
+
+    // Resolve model: config primary → DEFAULT_MODEL
+    // Note: 'izzi/auto' is NOT a valid model ID; map it to DEFAULT_MODEL
+    let model = config.model || DEFAULT_MODEL;
+    if (model === 'izzi/auto' || model === 'izzi-auto') {
+      model = DEFAULT_MODEL;
+    }
+
+    // Build auth headers
+    // CRITICAL: izziapi.com uses `x-api-key` header, NOT `Authorization: Bearer`
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    };
+
+    if (localApiKey) {
+      headers['x-api-key'] = localApiKey;
+    } else if (accessToken) {
+      // Fallback to Bearer for Supabase token (if server supports it)
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
+    const chatUrl = this.getChatUrl();
+    console.log(`[ManagedAgentProvider] POST ${chatUrl} model=${model}`);
 
     const response = await axios.request<NodeJS.ReadableStream>({
       method: 'POST',
-      url: this.chatUrl,
-      data: buildRequestPayload(request),
+      url: chatUrl,
+      data: buildOpenAIPayload(request, model),
       responseType: 'stream',
       validateStatus: () => true,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'text/event-stream, application/x-ndjson, application/json',
-        'Content-Type': 'application/json',
-      },
+      headers,
       timeout: 120000,
     });
 
     if (response.status >= 400) {
       const body = await readStreamBody(response.data);
-      throw new Error(body || `Agent endpoint returned HTTP ${response.status}`);
+      throw new Error(body || `Chat completions endpoint returned HTTP ${response.status}`);
     }
 
     const contentType = String(response.headers['content-type'] ?? '');
-    yield* parseManagedAgentStream(response.data, contentType);
+
+    // Handle OpenAI SSE format: data: {"choices":[{"delta":{"content":"..."}}]}
+    if (contentType.includes('text/event-stream') || contentType.includes('text/plain')) {
+      yield { type: 'status', state: 'running' };
+      yield { type: 'assistant_start' };
+
+      let buffer = '';
+      for await (const rawChunk of response.data) {
+        buffer += Buffer.isBuffer(rawChunk) ? rawChunk.toString('utf8') : String(rawChunk);
+
+        // Process complete SSE lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete last line in buffer
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith(':')) continue; // Skip comments and empty lines
+
+          if (trimmed === 'data: [DONE]') {
+            yield { type: 'assistant_done' };
+            return;
+          }
+
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const jsonStr = trimmed.slice(6);
+              const parsed = JSON.parse(jsonStr);
+              const delta = parsed.choices?.[0]?.delta?.content;
+              if (delta) {
+                yield { type: 'assistant_delta', delta };
+              }
+
+              // Check for finish_reason
+              const finishReason = parsed.choices?.[0]?.finish_reason;
+              if (finishReason === 'stop') {
+                yield { type: 'assistant_done' };
+                return;
+              }
+            } catch {
+              // Ignore malformed SSE chunks
+            }
+          }
+        }
+      }
+
+      // Process remaining buffer
+      if (buffer.trim() === 'data: [DONE]') {
+        yield { type: 'assistant_done' };
+      } else {
+        yield { type: 'assistant_done' };
+      }
+    } else {
+      // Fallback: try the original stream parser for non-SSE responses
+      yield* parseManagedAgentStream(response.data, contentType);
+    }
   }
 
-  async getStatus(sessionId?: string): Promise<ManagedAgentStatus | null> {
+  async getStatus(_sessionId?: string): Promise<ManagedAgentStatus | null> {
     if (this.mockMode) {
       return {
         state: 'idle',
@@ -164,29 +301,11 @@ export class ManagedAgentProvider {
       };
     }
 
-    const accessToken = await this.getAccessToken();
-    if (!accessToken) {
-      return null;
-    }
-
-    const response = await axios.get(this.statusUrl, {
-      params: sessionId ? { sessionId } : undefined,
-      validateStatus: () => true,
-      timeout: 15000,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
-    });
-
-    if (response.status === 404) {
-      return null;
-    }
-
-    if (response.status >= 400) {
-      throw new Error(`Status endpoint returned HTTP ${response.status}`);
-    }
-
-    return normalizeStatusPayload(response.data);
+    // Status is managed locally — no /api/agent/status endpoint exists
+    // Return idle status since we use direct /v1/chat/completions streaming
+    return {
+      state: 'idle',
+      updatedAt: new Date().toISOString(),
+    };
   }
 }

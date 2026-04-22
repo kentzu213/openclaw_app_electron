@@ -5,9 +5,11 @@ import { ChatEmptyState } from '../components/ChatEmptyState';
 import { ChatMessageList } from '../components/ChatMessageList';
 import { useAgentWorkspaceStore } from '../store/agentWorkspace';
 
-const DASHBOARD_URL = 'https://izziapi.com/dashboard';
+interface ChatPageProps {
+  onNavigateToDashboard?: () => void;
+}
 
-export function ChatPage() {
+export function ChatPage({ onNavigateToDashboard }: ChatPageProps) {
   const [draft, setDraft] = useState('');
   const session = useAgentWorkspaceStore((state) => state.session);
   const messages = useAgentWorkspaceStore((state) => state.messages);
@@ -50,11 +52,11 @@ export function ChatPage() {
           <button
             type="button"
             className="btn btn--glass-dashboard"
-            onClick={() => window.electronAPI?.shell.openExternal(DASHBOARD_URL)}
-            title="Open IzziAPI Dashboard"
+            onClick={() => window.electronAPI?.shell.openExternal('http://127.0.0.1:18789/')}
+            title="Open OpenClaw Gateway Dashboard"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M6 3H3.5A1.5 1.5 0 002 4.5v8A1.5 1.5 0 003.5 14h8a1.5 1.5 0 001.5-1.5V10m-4-7h4m0 0v4m0-4L8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 4.5A1.5 1.5 0 013.5 3h9A1.5 1.5 0 0114 4.5v7a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 11.5v-7zM4 6h8M4 8.5h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
             Open Dashboard
           </button>
