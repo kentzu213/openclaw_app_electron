@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeImage } from 'electron';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { AuthManager } from './auth/auth-manager';
@@ -41,6 +41,32 @@ function getBuildAssetPath(fileName: string): string {
   return path.join(app.getAppPath(), 'build', fileName);
 }
 
+/** Get the platform-appropriate app icon as nativeImage */
+function getAppIcon(): Electron.NativeImage | undefined {
+  try {
+    let iconFileName: string;
+    if (process.platform === 'win32') {
+      iconFileName = 'icon.ico';
+    } else if (process.platform === 'darwin') {
+      iconFileName = 'icon.icns';
+    } else {
+      iconFileName = 'icon.png';
+    }
+    const iconPath = getBuildAssetPath(iconFileName);
+    const icon = nativeImage.createFromPath(iconPath);
+    if (icon.isEmpty()) {
+      // Fallback to png if platform-specific format missing
+      const fallbackPath = getBuildAssetPath('icon.png');
+      const fallback = nativeImage.createFromPath(fallbackPath);
+      return fallback.isEmpty() ? undefined : fallback;
+    }
+    return icon;
+  } catch (err) {
+    console.error('[Icon] Failed to load app icon:', err);
+    return undefined;
+  }
+}
+
 // Register custom protocol for OAuth callback
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
@@ -51,6 +77,8 @@ if (process.defaultApp) {
 }
 
 function createWindow() {
+  const appIcon = getAppIcon();
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -65,7 +93,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
     },
-    icon: getBuildAssetPath('icon.png'),
+    ...(appIcon ? { icon: appIcon } : {}),
   });
 
   if (isDev) {
