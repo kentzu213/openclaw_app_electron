@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { AgentSetupPanel } from '../components/AgentSetupPanel';
+import { useAgentGatewayStore } from '../store/agentGateway';
+import type { ExternalAgent } from '../types/agent-registry';
 import '../styles/agent-store.css';
+import '../styles/agent-hub.css';
 
 // ── Types ──
 
@@ -144,7 +148,12 @@ export function AgentStorePage() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedAgent, setSelectedAgent] = useState<AgentBundle | null>(null);
   const [showSetupWizard, setShowSetupWizard] = useState(false);
-  const [activeTab, setActiveTab] = useState<'store' | 'installed'>('store');
+  const [activeTab, setActiveTab] = useState<'top-agents' | 'store' | 'installed'>('top-agents');
+
+  // External agents (Top 5 from gateway store)
+  const externalAgents = useAgentGatewayStore((state) => state.agents);
+  const updateAgentStatus = useAgentGatewayStore((state) => state.updateAgentStatus);
+  const [setupAgent, setSetupAgent] = useState<ExternalAgent | null>(null);
 
   // Filter agents by category + search
   useEffect(() => {
@@ -208,20 +217,26 @@ export function AgentStorePage() {
         <div className="agent-store__header-content">
           <h1 className="agent-store__title">
             <span className="agent-store__title-icon">🤖</span>
-            Agent Store
+            Agent Hub
           </h1>
           <p className="agent-store__subtitle">
-            AI Agents đóng gói sẵn — 1 click cài đặt, sẵn sàng làm việc
+            Setup nhanh AI Agents hàng đầu — 1 click cài đặt, sẵn sàng chat
           </p>
         </div>
 
         {/* Tab Switcher */}
         <div className="agent-store__tabs">
           <button
+            className={`agent-store__tab ${activeTab === 'top-agents' ? 'agent-store__tab--active' : ''}`}
+            onClick={() => setActiveTab('top-agents')}
+          >
+            🌟 Top Agents
+          </button>
+          <button
             className={`agent-store__tab ${activeTab === 'store' ? 'agent-store__tab--active' : ''}`}
             onClick={() => setActiveTab('store')}
           >
-            🏪 Cửa hàng
+            🏪 Izzi Agents
           </button>
           <button
             className={`agent-store__tab ${activeTab === 'installed' ? 'agent-store__tab--active' : ''}`}
@@ -232,7 +247,84 @@ export function AgentStorePage() {
         </div>
       </header>
 
-      {activeTab === 'store' ? (
+      {/* Top Agents Tab */}
+      {activeTab === 'top-agents' && (
+        <div className="agent-hub__top-section">
+          <h2 className="agent-hub__top-title">
+            🌟 Top AI Agents trên GitHub
+          </h2>
+          <p className="agent-hub__top-subtitle">
+            Open-source AI Agents phổ biến nhất — cài đặt 1-click, dùng với IzziAPI hoặc bất kỳ provider nào
+          </p>
+          <div className="agent-hub__top-grid">
+            {externalAgents.map((agent) => (
+              <div key={agent.id} className="agent-hub__top-card">
+                <span className={`agent-hub__top-card-status agent-hub__top-card-status--${agent.status}`}>
+                  {agent.status === 'running' ? '🟢 Running' :
+                   agent.status === 'stopped' ? '🟡 Stopped' :
+                   agent.status === 'installing' ? '⏳ Installing' :
+                   agent.status === 'error' ? '🔴 Error' :
+                   '⚪ Not Installed'}
+                </span>
+                <div className="agent-hub__top-card-header">
+                  <span className="agent-hub__top-card-icon">{agent.icon}</span>
+                  <div className="agent-hub__top-card-info">
+                    <h3 className="agent-hub__top-card-name">{agent.displayName}</h3>
+                    <div className="agent-hub__top-card-stars">⭐ {agent.githubStars} GitHub stars</div>
+                  </div>
+                  <span className="agent-hub__top-card-category">{agent.category}</span>
+                </div>
+                <p className="agent-hub__top-card-desc">{agent.description}</p>
+                <div className="agent-hub__top-card-tags">
+                  {agent.tags.slice(0, 4).map((tag) => (
+                    <span key={tag} className="agent-hub__top-card-tag">{tag}</span>
+                  ))}
+                </div>
+                <div className="agent-hub__top-card-actions">
+                  {agent.status === 'not-installed' ? (
+                    <button
+                      className="agent-hub__top-card-btn agent-hub__top-card-btn--setup"
+                      onClick={() => setSetupAgent(agent)}
+                    >
+                      🚀 Setup 1-Click
+                    </button>
+                  ) : agent.status === 'running' ? (
+                    <button
+                      className="agent-hub__top-card-btn agent-hub__top-card-btn--chat"
+                      onClick={() => {
+                        useAgentGatewayStore.getState().openAgentChat(agent.id);
+                      }}
+                    >
+                      💬 Chat Now
+                    </button>
+                  ) : (
+                    <button
+                      className="agent-hub__top-card-btn agent-hub__top-card-btn--start"
+                      onClick={() => setSetupAgent(agent)}
+                    >
+                      ▶️ Start / Re-setup
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Agent Setup Panel */}
+      {setupAgent && (
+        <AgentSetupPanel
+          agent={setupAgent}
+          onClose={() => setSetupAgent(null)}
+          onInstallComplete={(agentId) => {
+            updateAgentStatus(agentId, 'running');
+            setSetupAgent(null);
+          }}
+        />
+      )}
+
+      {activeTab === 'store' && (
         <>
           {/* Search + Filters */}
           <div className="agent-store__controls">
@@ -356,7 +448,9 @@ export function AgentStorePage() {
             </div>
           )}
         </>
-      ) : (
+      )}
+
+      {activeTab === 'installed' && (
         /* Installed Agents Tab */
         <InstalledAgentsPanel
           agents={installedAgents}

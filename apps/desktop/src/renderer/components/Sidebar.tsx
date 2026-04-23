@@ -23,7 +23,7 @@ interface SidebarProps {
 
 const WORKSPACE_ITEMS = [
   { id: 'setup', icon: SetupIcon, label: 'Setup Wizard', badge: 'New' },
-  { id: 'chat', icon: ChatIcon, label: 'Chat' },
+  { id: 'chat', icon: ChatIcon, label: 'Agent Gateway', badge: 'v2' },
   { id: 'tasks', icon: TasksIcon, label: 'Tasks' },
   { id: 'memory', icon: MemoryIcon, label: 'Memory' },
   { id: 'status', icon: StatusIcon, label: 'Status' },
@@ -32,7 +32,7 @@ const WORKSPACE_ITEMS = [
 ];
 
 const EXPLORE_ITEMS = [
-  { id: 'agents', icon: () => <span style={{ fontSize: 16 }}>🤖</span>, label: 'Agents', badge: 'New' },
+  { id: 'agents', icon: () => <span style={{ fontSize: 16 }}>🤖</span>, label: 'Agent Hub', badge: 'v2' },
   { id: 'marketplace', icon: MarketplaceIcon, label: 'Marketplace' },
   { id: 'extensions', icon: ExtensionIcon, label: 'Extensions' },
 ];

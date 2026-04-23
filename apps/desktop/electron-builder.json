@@ -114,7 +114,7 @@
   "publish": {
     "provider": "github",
     "owner": "kentzu213",
-    "repo": "Izzi-Openclaw-Setup",
+    "repo": "starizzi-app",
     "releaseType": "release",
     "vPrefixedTagName": true
   },

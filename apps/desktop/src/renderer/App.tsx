@@ -271,7 +271,7 @@ export function App() {
   function renderPage() {
     switch (currentPage) {
       case 'chat':
-        return <ChatPage onNavigateToDashboard={() => setCurrentPage('dashboard')} />;
+        return <ChatPage onNavigateToDashboard={() => setCurrentPage('dashboard')} onNavigateToAgentHub={() => setCurrentPage('agents')} />;
       case 'tasks':
         return <TasksPage />;
       case 'memory':
