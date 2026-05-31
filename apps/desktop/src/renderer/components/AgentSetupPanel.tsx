@@ -8,51 +8,51 @@ interface AgentSetupPanelProps {
   onInstallComplete: (agentId: string) => void;
 }
 
+// Build the real, honest command a user runs to start the external agent locally.
+function buildRunCommand(agent: ExternalAgent): string {
+  switch (agent.setupMethod) {
+    case 'docker':
+      return `docker run -p ${agent.defaultPort}:${agent.defaultPort} ${agent.dockerImage ?? agent.name}`;
+    case 'pip':
+      return `pip install ${agent.name}${agent.version ? `==${agent.version}` : ''}`;
+    case 'npm':
+      return `npx ${agent.name}`;
+    case 'native':
+    default:
+      return `# Xem hướng dẫn cài đặt tại GitHub: ${agent.githubUrl}`;
+  }
+}
+
 export function AgentSetupPanel({ agent, onClose, onInstallComplete }: AgentSetupPanelProps) {
   const [step, setStep] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState<AIProvider>('izzi');
   const [apiKey, setApiKey] = useState('');
-  const [isInstalling, setIsInstalling] = useState(false);
-  const [installLog, setInstallLog] = useState<string[]>([]);
-  const [installDone, setInstallDone] = useState(false);
-  const [installError, setInstallError] = useState<string | null>(null);
+  const [isProbing, setIsProbing] = useState(false);
+  const [probeResult, setProbeResult] = useState<'idle' | 'reachable' | 'unreachable'>('idle');
 
-  const steps = ['Thông tin', 'Model Provider', 'Cài đặt'];
+  const steps = ['Thông tin', 'Model Provider', 'Kết nối'];
 
-  async function handleInstall() {
-    setIsInstalling(true);
-    setInstallLog([]);
-    setInstallError(null);
+  // Honest health probe: only confirm "running" when the agent's health
+  // endpoint actually responds. No simulation, no fake success.
+  async function handleProbe() {
+    setIsProbing(true);
+    setProbeResult('idle');
 
     try {
-      // Check if Docker is available via electronAPI
-      if (window.electronAPI && (window.electronAPI as any).setup?.checkSystem) {
-        setInstallLog((prev) => [...prev, '$ Kiểm tra hệ thống...']);
-        const sysCheck = await (window.electronAPI as any).setup.checkSystem();
-        setInstallLog((prev) => [
-          ...prev,
-          `  Docker: ${sysCheck.dockerRunning ? '✓ Running' : '⚠ Not running'}`,
-        ]);
+      const url = `http://127.0.0.1:${agent.defaultPort}${agent.healthEndpoint}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+
+      if (res.ok) {
+        setProbeResult('reachable');
+        // Only now is the agent genuinely running — let the store reflect it.
+        setTimeout(() => onInstallComplete(agent.id), 1200);
+      } else {
+        setProbeResult('unreachable');
       }
-
-      // Simulate Docker pull for now
-      for (const stepMsg of agent.setupSteps) {
-        await new Promise((r) => setTimeout(r, 800));
-        setInstallLog((prev) => [...prev, `$ ${stepMsg}`]);
-      }
-
-      await new Promise((r) => setTimeout(r, 500));
-      setInstallLog((prev) => [...prev, `✓ ${agent.displayName} đã được cài đặt thành công!`]);
-      setInstallDone(true);
-
-      setTimeout(() => {
-        onInstallComplete(agent.id);
-      }, 1500);
-    } catch (err: any) {
-      setInstallError(err.message || 'Cài đặt thất bại');
-      setInstallLog((prev) => [...prev, `✗ Lỗi: ${err.message}`]);
+    } catch {
+      setProbeResult('unreachable');
     } finally {
-      setIsInstalling(false);
+      setIsProbing(false);
     }
   }
 
@@ -198,72 +198,85 @@ export function AgentSetupPanel({ agent, onClose, onInstallComplete }: AgentSetu
       );
     }
 
-    // Step 2: Install
+    // Step 2: Connect — honest manual setup + real health probe (no simulation)
     return (
       <div className="agent-setup__install">
-        <h3>🚀 Cài đặt {agent.displayName}</h3>
+        <h3>🔌 Kết nối {agent.displayName}</h3>
 
-        {!isInstalling && !installDone && installLog.length === 0 && (
-          <div className="agent-setup__install-summary">
-            <div className="agent-setup__install-row">
-              <span>Agent:</span>
-              <span>{agent.icon} {agent.displayName}</span>
-            </div>
-            <div className="agent-setup__install-row">
-              <span>Provider:</span>
-              <span>{MODEL_PROVIDERS.find((p) => p.id === selectedProvider)?.name}</span>
-            </div>
-            <div className="agent-setup__install-row">
-              <span>Method:</span>
-              <span>{agent.setupMethod === 'docker' ? '🐳 Docker' : agent.setupMethod}</span>
-            </div>
-            <div className="agent-setup__install-row">
-              <span>Port:</span>
-              <span>{agent.defaultPort}</span>
-            </div>
+        <div className="agent-setup__error">
+          ⚠️ Đây là agent mã nguồn mở của bên thứ ba. Izzi <strong>chưa</strong> tự động
+          cài/chạy agent này cho bạn — bạn cần tự khởi chạy nó ở máy của mình rồi bấm
+          "Kiểm tra kết nối" bên dưới.
+        </div>
+
+        <div className="agent-setup__install-summary">
+          <div className="agent-setup__install-row">
+            <span>Agent:</span>
+            <span>{agent.icon} {agent.displayName}</span>
           </div>
-        )}
+          <div className="agent-setup__install-row">
+            <span>Provider:</span>
+            <span>{MODEL_PROVIDERS.find((p) => p.id === selectedProvider)?.name}</span>
+          </div>
+          <div className="agent-setup__install-row">
+            <span>Method:</span>
+            <span>{agent.setupMethod === 'docker' ? '🐳 Docker' : agent.setupMethod}</span>
+          </div>
+          <div className="agent-setup__install-row">
+            <span>Phải chạy tại:</span>
+            <span>127.0.0.1:{agent.defaultPort}</span>
+          </div>
+        </div>
 
-        {installLog.length > 0 && (
+        <div className="agent-setup__meta">
+          <span className="agent-setup__meta-label">Lệnh cài/chạy (chạy trong terminal của bạn):</span>
           <div className="agent-setup__terminal">
-            {installLog.map((line, i) => (
-              <div
-                key={i}
-                className={`agent-setup__terminal-line ${
-                  line.startsWith('✓') ? 'agent-setup__terminal-line--ok' :
-                  line.startsWith('✗') ? 'agent-setup__terminal-line--err' : ''
-                }`}
-              >
-                {line}
-              </div>
-            ))}
+            <div className="agent-setup__terminal-line">$ {buildRunCommand(agent)}</div>
           </div>
-        )}
+        </div>
 
-        {installDone && (
+        <a
+          className="agent-setup__github-link"
+          href={agent.githubUrl}
+          onClick={(e) => {
+            e.preventDefault();
+            if (window.electronAPI?.shell?.openExternal) {
+              window.electronAPI.shell.openExternal(agent.githubUrl);
+            } else {
+              window.open(agent.githubUrl, '_blank');
+            }
+          }}
+        >
+          📘 Hướng dẫn cài đặt đầy đủ trên GitHub →
+        </a>
+
+        {probeResult === 'reachable' && (
           <div className="agent-setup__success">
-            🎉 {agent.displayName} đã sẵn sàng! Bạn có thể bắt đầu chat ngay.
+            ✅ Đã phát hiện {agent.displayName} đang chạy ở port {agent.defaultPort}. Sẵn sàng chat.
           </div>
         )}
 
-        {installError && (
-          <div className="agent-setup__error">❌ {installError}</div>
+        {probeResult === 'unreachable' && (
+          <div className="agent-setup__error">
+            ❌ Chưa phát hiện {agent.displayName} đang chạy ở port {agent.defaultPort}.
+            Hãy chắc chắn agent đã khởi động rồi thử lại.
+          </div>
         )}
 
-        {!isInstalling && !installDone && (
+        {!isProbing && probeResult !== 'reachable' && (
           <button
             className="agent-setup__install-btn"
-            onClick={handleInstall}
+            onClick={handleProbe}
             type="button"
           >
-            🚀 Bắt đầu cài đặt
+            🔍 Kiểm tra kết nối
           </button>
         )}
 
-        {isInstalling && (
+        {isProbing && (
           <div className="agent-setup__installing">
             <div className="agent-setup__spinner" />
-            <span>Đang cài đặt...</span>
+            <span>Đang kiểm tra {agent.defaultPort}...</span>
           </div>
         )}
       </div>
@@ -296,11 +309,11 @@ export function AgentSetupPanel({ agent, onClose, onInstallComplete }: AgentSetu
 
         {/* Navigation */}
         <div className="agent-setup__nav">
-          {step > 0 && !installDone && (
+          {step > 0 && probeResult !== 'reachable' && (
             <button
               className="agent-setup__nav-btn agent-setup__nav-btn--back"
               onClick={() => setStep(step - 1)}
-              disabled={isInstalling}
+              disabled={isProbing}
               type="button"
             >
               ← Quay lại
